@@ -38,6 +38,11 @@ class FrameEngine:
         self.diagnostic_key = None
         self.diagnostic_gen = None
 
+        # Webcam mode
+        self.webcam_mode = False
+        self._webcam_brightness = None  # (height, width) uint8 brightness values
+        self._webcam_lock = threading.Lock()
+
         # WebSocket clients
         self.ws_clients = set()
         self.ws_lock = threading.Lock()
@@ -163,6 +168,43 @@ class FrameEngine:
         """Set FX intensity 0..1."""
         self.fx.intensity = max(0.0, min(1.0, float(value)))
 
+    def set_webcam(self, on):
+        """Toggle webcam mode."""
+        self.webcam_mode = bool(on)
+        if not on:
+            with self._webcam_lock:
+                self._webcam_brightness = None
+
+    def receive_webcam_frame(self, brightness_data):
+        """Receive a brightness frame from the browser webcam.
+
+        Args:
+            brightness_data: bytes of length width*height, each byte is 0-255 brightness.
+        """
+        expected = self.width * self.height
+        if len(brightness_data) != expected:
+            return
+        with self._webcam_lock:
+            self._webcam_brightness = np.frombuffer(brightness_data, dtype=np.uint8).reshape(
+                (self.height, self.width)
+            ).copy()
+
+    def _generate_webcam_frame(self):
+        """Generate a frame from webcam brightness data + current palette."""
+        with self._webcam_lock:
+            brightness = self._webcam_brightness
+
+        if brightness is None:
+            return np.zeros((self.height, self.width, 3), dtype=np.uint8)
+
+        frame = np.zeros((self.height, self.width, 3), dtype=np.uint8)
+        for y in range(self.height):
+            for x in range(self.width):
+                val = int(brightness[y][x])
+                r, g, b = palette_color(val, self.palette_idx)
+                frame[y][x] = [r, g, b]
+        return frame
+
     def set_diagnostic(self, key):
         """Switch to a diagnostic pattern from the original PATTERNS."""
         if key in PATTERNS:
@@ -199,6 +241,7 @@ class FrameEngine:
             "controller_ip": config.CONTROLLER_IP,
             "fx": self.fx.active_fx or "none",
             "fx_intensity": self.fx.intensity,
+            "webcam_mode": self.webcam_mode,
         }
 
     def _generate_animation_frame(self):
@@ -227,6 +270,8 @@ class FrameEngine:
 
             if self.blackout:
                 frame_rgb = np.zeros((self.height, self.width, 3), dtype=np.uint8)
+            elif self.webcam_mode:
+                frame_rgb = self._generate_webcam_frame()
             elif self.diagnostic_mode and self.diagnostic_gen:
                 try:
                     frame_rgb = next(self.diagnostic_gen)

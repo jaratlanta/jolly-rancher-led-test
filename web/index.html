@@ -50,8 +50,16 @@
 
     <div class="controls">
 
-        <!-- Animation + Palette Navigation -->
-        <div class="control-row navigation">
+        <!-- Source Toggle: Animation vs Webcam -->
+        <div class="control-row source-row">
+            <div class="source-toggle">
+                <button class="source-btn active" id="source-anim-btn">Animation</button>
+                <button class="source-btn" id="source-webcam-btn">Webcam</button>
+            </div>
+        </div>
+
+        <!-- Animation Navigation (hidden when webcam active) -->
+        <div class="control-row navigation" id="anim-nav-row">
             <div class="nav-group">
                 <button class="nav-btn" id="anim-prev" title="Previous animation">&#9664;</button>
                 <div class="nav-label">
@@ -70,6 +78,25 @@
                     <div class="sub" id="pal-sub">Palette 0/0</div>
                 </div>
                 <button class="nav-btn" id="pal-next" title="Next palette">&#9654;</button>
+            </div>
+        </div>
+
+        <!-- Webcam + Palette Navigation (shown when webcam active) -->
+        <div class="control-row navigation hidden" id="webcam-nav-row">
+            <div class="webcam-status">
+                <span class="webcam-live-dot"></span>
+                <span class="webcam-live-text">LIVE</span>
+            </div>
+
+            <div class="nav-divider"></div>
+
+            <div class="nav-group">
+                <button class="nav-btn" id="pal-prev-wc" title="Previous palette">&#9664;</button>
+                <div class="nav-label">
+                    <div class="name" id="pal-name-wc">&mdash;</div>
+                    <div class="sub" id="pal-sub-wc">Palette 0/0</div>
+                </div>
+                <button class="nav-btn" id="pal-next-wc" title="Next palette">&#9654;</button>
             </div>
         </div>
 
@@ -151,6 +178,8 @@
         <kbd>M</kbd> switch model
         &nbsp;&nbsp;
         <kbd>S</kbd> save preset
+        &nbsp;&nbsp;
+        <kbd>W</kbd> webcam
     </div>
 
 </div>

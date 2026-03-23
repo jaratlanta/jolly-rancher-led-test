@@ -185,6 +185,90 @@ body {
     height: auto;
 }
 
+/* ─── Source Toggle (Animation / Webcam) ──────────────────────────────────── */
+
+.source-row {
+    justify-content: center;
+}
+
+.source-toggle {
+    display: flex;
+    gap: 4px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 3px;
+}
+
+.source-btn {
+    padding: 7px 20px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-dim);
+    font-size: 0.72rem;
+    font-family: inherit;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.source-btn:hover {
+    color: var(--text);
+}
+
+.source-btn.active {
+    background: var(--accent-dim);
+    color: #fff;
+    box-shadow: 0 0 8px rgba(0, 204, 255, 0.2);
+}
+
+.source-btn.webcam-active {
+    background: #552200;
+    color: var(--orange);
+    box-shadow: 0 0 8px rgba(255, 136, 0, 0.2);
+}
+
+/* ─── Webcam Status ───────────────────────────────────────────────────────── */
+
+.webcam-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 16px;
+}
+
+.webcam-live-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--orange);
+    box-shadow: 0 0 6px var(--orange);
+    animation: webcam-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes webcam-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+.webcam-live-text {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: var(--orange);
+}
+
+/* Hidden video element for webcam capture */
+#webcam-video {
+    display: none;
+}
+#webcam-sample-canvas {
+    display: none;
+}
+
 /* ─── Controls Section ────────────────────────────────────────────────────── */
 
 .controls {

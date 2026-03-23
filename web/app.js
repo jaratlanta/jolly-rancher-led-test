@@ -17,6 +17,14 @@ let vcWidth = 24;
 let vcHeight = 12;
 let panels = [];
 
+// Webcam state
+let webcamActive = false;
+let webcamStream = null;
+let webcamVideo = null;
+let webcamSampleCanvas = null;
+let webcamSampleCtx = null;
+let webcamIntervalId = null;
+
 // ─── Canvas References ──────────────────────────────────────────────────────
 
 const singleCanvas = document.getElementById('matrix-canvas');
@@ -261,6 +269,11 @@ function updateUI() {
         blackoutBtn.textContent = 'All Off';
     }
 
+    // Webcam palette row sync
+    document.getElementById('pal-name-wc').textContent = state.palette_name || '—';
+    document.getElementById('pal-sub-wc').textContent =
+        `Palette ${(state.palette_idx || 0) + 1}/${state.palette_count || 0}`;
+
     // Diagnostic mode
     const diagSelect = document.getElementById('diag-select');
     if (state.diagnostic_mode && state.diagnostic_key) {
@@ -479,6 +492,123 @@ function renderPresetsList() {
     });
 }
 
+// ─── Webcam ──────────────────────────────────────────────────────────────────
+
+function initWebcamElements() {
+    // Create hidden video + canvas for sampling
+    webcamVideo = document.createElement('video');
+    webcamVideo.id = 'webcam-video';
+    webcamVideo.autoplay = true;
+    webcamVideo.playsInline = true;
+    webcamVideo.muted = true;
+    document.body.appendChild(webcamVideo);
+
+    webcamSampleCanvas = document.createElement('canvas');
+    webcamSampleCanvas.id = 'webcam-sample-canvas';
+    document.body.appendChild(webcamSampleCanvas);
+    webcamSampleCtx = webcamSampleCanvas.getContext('2d', { willReadFrequently: true });
+}
+
+async function startWebcam() {
+    try {
+        webcamStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'user', width: { ideal: 320 }, height: { ideal: 240 } }
+        });
+        webcamVideo.srcObject = webcamStream;
+        await webcamVideo.play();
+        webcamActive = true;
+
+        send({ cmd: 'set_webcam', on: true });
+
+        // Start sampling loop
+        webcamIntervalId = setInterval(sampleWebcam, 1000 / 30); // 30fps
+
+        updateSourceUI();
+    } catch (err) {
+        console.error('Webcam access denied:', err);
+        alert('Could not access webcam. Check browser permissions.');
+    }
+}
+
+function stopWebcam() {
+    webcamActive = false;
+
+    if (webcamIntervalId) {
+        clearInterval(webcamIntervalId);
+        webcamIntervalId = null;
+    }
+
+    if (webcamStream) {
+        webcamStream.getTracks().forEach(t => t.stop());
+        webcamStream = null;
+    }
+
+    if (webcamVideo) {
+        webcamVideo.srcObject = null;
+    }
+
+    send({ cmd: 'set_webcam', on: false });
+    updateSourceUI();
+}
+
+function toggleWebcam() {
+    if (webcamActive) {
+        stopWebcam();
+    } else {
+        startWebcam();
+    }
+}
+
+function sampleWebcam() {
+    if (!webcamActive || !webcamVideo || webcamVideo.readyState < 2) return;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+    // Downsample video to matrix dimensions
+    webcamSampleCanvas.width = vcWidth;
+    webcamSampleCanvas.height = vcHeight;
+
+    // Mirror horizontally for selfie-style
+    webcamSampleCtx.save();
+    webcamSampleCtx.scale(-1, 1);
+    webcamSampleCtx.drawImage(webcamVideo, -vcWidth, 0, vcWidth, vcHeight);
+    webcamSampleCtx.restore();
+
+    const imageData = webcamSampleCtx.getImageData(0, 0, vcWidth, vcHeight);
+    const data = imageData.data; // RGBA
+
+    // Convert to brightness (single byte per pixel)
+    const brightness = new Uint8Array(vcWidth * vcHeight);
+    for (let i = 0; i < brightness.length; i++) {
+        const r = data[i * 4];
+        const g = data[i * 4 + 1];
+        const b = data[i * 4 + 2];
+        // Luminance formula
+        brightness[i] = Math.round(r * 0.299 + g * 0.587 + b * 0.114);
+    }
+
+    // Send as binary to server
+    ws.send(brightness.buffer);
+}
+
+function updateSourceUI() {
+    const animBtn = document.getElementById('source-anim-btn');
+    const wcBtn = document.getElementById('source-webcam-btn');
+    const animRow = document.getElementById('anim-nav-row');
+    const wcRow = document.getElementById('webcam-nav-row');
+
+    if (webcamActive) {
+        animBtn.classList.remove('active');
+        wcBtn.classList.add('active', 'webcam-active');
+        animRow.classList.add('hidden');
+        wcRow.classList.remove('hidden');
+    } else {
+        animBtn.classList.add('active');
+        wcBtn.classList.remove('active', 'webcam-active');
+        animRow.classList.remove('hidden');
+        wcRow.classList.add('hidden');
+    }
+}
+
 // ─── Event Handlers ──────────────────────────────────────────────────────────
 
 // Animation nav
@@ -540,6 +670,24 @@ document.getElementById('diag-select').addEventListener('change', (e) => {
 // Save preset button
 document.getElementById('save-preset-btn').addEventListener('click', savePreset);
 
+// Source toggle
+document.getElementById('source-anim-btn').addEventListener('click', () => {
+    if (webcamActive) stopWebcam();
+});
+document.getElementById('source-webcam-btn').addEventListener('click', () => {
+    if (!webcamActive) startWebcam();
+});
+
+// Webcam palette nav (duplicates for the webcam row)
+document.getElementById('pal-prev-wc').addEventListener('click', () => {
+    const idx = ((state.palette_idx || 0) - 1 + (state.palette_count || 32)) % (state.palette_count || 32);
+    send({ cmd: 'set_palette', idx });
+});
+document.getElementById('pal-next-wc').addEventListener('click', () => {
+    const idx = ((state.palette_idx || 0) + 1) % (state.palette_count || 32);
+    send({ cmd: 'set_palette', idx });
+});
+
 // ─── Keyboard Controls ──────────────────────────────────────────────────────
 
 document.addEventListener('keydown', (e) => {
@@ -578,6 +726,10 @@ document.addEventListener('keydown', (e) => {
             e.preventDefault();
             cycleModel();
             break;
+        case 'w': case 'W':
+            e.preventDefault();
+            toggleWebcam();
+            break;
         case 's': case 'S':
             if (!e.ctrlKey && !e.metaKey) {
                 e.preventDefault();
@@ -589,6 +741,7 @@ document.addEventListener('keydown', (e) => {
 
 // ─── Init ────────────────────────────────────────────────────────────────────
 
+initWebcamElements();
 loadModels();
 loadDiagnostics();
 loadFX();

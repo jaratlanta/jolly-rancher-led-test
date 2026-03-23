@@ -94,7 +94,15 @@ async def websocket_endpoint(ws: WebSocket):
 
     try:
         while True:
-            msg = await ws.receive_text()
+            raw = await ws.receive()
+            # Binary messages are webcam brightness frames
+            if raw.get("type") == "websocket.receive" and "bytes" in raw and raw["bytes"]:
+                engine.receive_webcam_frame(raw["bytes"])
+                continue
+
+            msg = raw.get("text", "")
+            if not msg:
+                continue
             data = json.loads(msg)
             cmd = data.get("cmd")
 
@@ -114,6 +122,8 @@ async def websocket_endpoint(ws: WebSocket):
                 engine.set_fx(data["key"])
             elif cmd == "set_fx_intensity":
                 engine.set_fx_intensity(data["value"])
+            elif cmd == "set_webcam":
+                engine.set_webcam(data.get("on", False))
             elif cmd == "set_model":
                 engine.reconfigure(data["key"])
             elif cmd == "save_preset":
@@ -126,7 +136,8 @@ async def websocket_endpoint(ws: WebSocket):
                 p = get_preset(data["id"])
                 if p and "preset" in p:
                     pd = p["preset"]
-                    if "animation_idx" in pd:
+                    # Skip animation when webcam is active
+                    if "animation_idx" in pd and not engine.webcam_mode:
                         engine.set_animation(pd["animation_idx"])
                     if "palette_idx" in pd:
                         engine.set_palette(pd["palette_idx"])
