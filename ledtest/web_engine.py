@@ -73,6 +73,9 @@ class FrameEngine:
             # Multi-panel mode
             self.mapping = build_multi_panel_mapping(model, config.SERPENTINE)
 
+        # Precompute per-pixel panel-local coordinates
+        self._build_panel_coords()
+
         # FX processor
         self.fx = FXProcessor(self.width, self.height)
 
@@ -244,17 +247,54 @@ class FrameEngine:
             "webcam_mode": self.webcam_mode,
         }
 
+    def _build_panel_coords(self):
+        """Precompute per-pixel panel-local normalized coordinates.
+
+        For multi-panel models, each panel gets its own independent 0-1 coordinate
+        space so animations are self-contained per panel. For single-panel models,
+        this is the same as global coordinates.
+        """
+        panels = self.model_info["panels"]
+        # nx_map[y][x] = panel-local normalized x (0..1)
+        # ny_map[y][x] = panel-local normalized y (0..1)
+        # pw_map[y][x] = panel cols (for passing to anim fn)
+        # ph_map[y][x] = panel rows
+        self._nx_map = np.zeros((self.height, self.width), dtype=np.float32)
+        self._ny_map = np.zeros((self.height, self.width), dtype=np.float32)
+        self._pw_map = np.zeros((self.height, self.width), dtype=np.int32)
+        self._ph_map = np.zeros((self.height, self.width), dtype=np.int32)
+
+        for p in panels:
+            col_start = p["col_offset"]
+            col_end = col_start + p["cols"]
+            p_cols = p["cols"]
+            p_rows = p["rows"]
+            for y in range(p_rows):
+                ny = y / max(p_rows - 1, 1)
+                for x in range(p_cols):
+                    gx = col_start + x
+                    self._nx_map[y][gx] = x / max(p_cols - 1, 1)
+                    self._ny_map[y][gx] = ny
+                    self._pw_map[y][gx] = p_cols
+                    self._ph_map[y][gx] = p_rows
+
     def _generate_animation_frame(self):
-        """Generate a frame from the current animation + palette."""
+        """Generate a frame from the current animation + palette.
+
+        Each panel gets its own independent coordinate space so animations
+        are self-contained per panel (e.g. ripple centered on each panel).
+        """
         t = (time.monotonic() - self._start_time) * self.speed
         anim_fn = ANIMATIONS[self.animation_idx]["fn"]
         frame = np.zeros((self.height, self.width, 3), dtype=np.uint8)
 
         for y in range(self.height):
             for x in range(self.width):
-                nx = x / max(self.width - 1, 1)
-                ny = y / max(self.height - 1, 1)
-                val = anim_fn(nx, ny, t, self.width, self.height)
+                nx = self._nx_map[y][x]
+                ny = self._ny_map[y][x]
+                pw = self._pw_map[y][x]
+                ph = self._ph_map[y][x]
+                val = anim_fn(nx, ny, t, pw, ph)
                 val = max(0, min(255, int(val)))
                 r, g, b = palette_color(val, self.palette_idx)
                 frame[y][x] = [r, g, b]
