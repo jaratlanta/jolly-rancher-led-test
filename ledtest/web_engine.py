@@ -248,35 +248,48 @@ class FrameEngine:
         }
 
     def _build_panel_coords(self):
-        """Precompute per-pixel panel-local normalized coordinates.
+        """Precompute per-pixel surface-local normalized coordinates.
 
-        For multi-panel models, each panel gets its own independent 0-1 coordinate
-        space so animations are self-contained per panel. For single-panel models,
-        this is the same as global coordinates.
+        Panels that share a "surface" group get one continuous 0-1 coordinate
+        space across their combined width. For Jolly Rancher:
+          Left Side (LS Front + LS Rear) = 220 cols, one 0→1 space
+          Front = 72 cols, independent 0→1 space
+          Right Side (RS Rear + RS Front) = 220 cols, one 0→1 space
         """
         panels = self.model_info["panels"]
-        # nx_map[y][x] = panel-local normalized x (0..1)
-        # ny_map[y][x] = panel-local normalized y (0..1)
-        # pw_map[y][x] = panel cols (for passing to anim fn)
-        # ph_map[y][x] = panel rows
+        surfaces = self.model_info.get("surfaces", {})
+
         self._nx_map = np.zeros((self.height, self.width), dtype=np.float32)
         self._ny_map = np.zeros((self.height, self.width), dtype=np.float32)
         self._pw_map = np.zeros((self.height, self.width), dtype=np.int32)
         self._ph_map = np.zeros((self.height, self.width), dtype=np.int32)
 
         for p in panels:
-            col_start = p["col_offset"]
-            col_end = col_start + p["cols"]
+            surface_key = p.get("surface", p["name"])
+            surface = surfaces.get(surface_key, {
+                "col_start": p["col_offset"],
+                "total_cols": p["cols"],
+                "rows": p["rows"],
+            })
+
+            surf_col_start = surface["col_start"]
+            surf_total_cols = surface["total_cols"]
+            surf_rows = surface["rows"]
+
+            panel_col_start = p["col_offset"]
             p_cols = p["cols"]
             p_rows = p["rows"]
+
             for y in range(p_rows):
-                ny = y / max(p_rows - 1, 1)
+                ny = y / max(surf_rows - 1, 1)
                 for x in range(p_cols):
-                    gx = col_start + x
-                    self._nx_map[y][gx] = x / max(p_cols - 1, 1)
+                    gx = panel_col_start + x
+                    # x position relative to the surface start
+                    sx = (panel_col_start - surf_col_start) + x
+                    self._nx_map[y][gx] = sx / max(surf_total_cols - 1, 1)
                     self._ny_map[y][gx] = ny
-                    self._pw_map[y][gx] = p_cols
-                    self._ph_map[y][gx] = p_rows
+                    self._pw_map[y][gx] = surf_total_cols
+                    self._ph_map[y][gx] = surf_rows
 
     def _generate_animation_frame(self):
         """Generate a frame from the current animation + palette.
