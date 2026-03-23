@@ -392,94 +392,42 @@ def anim_halo(nx, ny, t, w, h):
 # ─── Animation Registry ─────────────────────────────────────────────────────
 
 ANIMATIONS = [
-    {"name": "Interference", "fn": anim_wave},
-    {"name": "Plasma",       "fn": anim_plasma},
-    {"name": "Scanner",      "fn": anim_scanner},
-    {"name": "Rain",         "fn": anim_rain},
-    {"name": "Pixels",       "fn": anim_noise},
-    {"name": "Hyperdrive",   "fn": anim_stars},
-    {"name": "Orbit",        "fn": anim_circle},
-    {"name": "Pulse",        "fn": anim_pulse},
-    {"name": "Matrix",       "fn": anim_digital},
-    {"name": "Blizzard",     "fn": anim_snow},
-    {"name": "Nebula",       "fn": anim_cloud},
-    {"name": "Lava",         "fn": anim_blob},
-    {"name": "Sparkle",      "fn": anim_sparkle},
-    {"name": "Tunnel",       "fn": anim_tunnel},
-    {"name": "Bonfire",      "fn": anim_fire},
-    {"name": "Lightning",    "fn": anim_bolt},
-    {"name": "Vortex",       "fn": anim_spiral},
-    {"name": "Stripes",      "fn": anim_bands},
-    {"name": "Checker",      "fn": anim_grid},
-    {"name": "Radar",        "fn": anim_sweep},
-    {"name": "Twister",      "fn": anim_twist},
-    {"name": "Bouncer",      "fn": anim_bounce},
-    {"name": "Falling",      "fn": anim_gravity},
-    {"name": "Zebra",        "fn": anim_stripe2},
-    {"name": "Glitch",       "fn": anim_glitch},
-    {"name": "Mirror",       "fn": anim_kaleido},
-    {"name": "Prism",        "fn": anim_tint},
-    {"name": "Flow",         "fn": anim_flux},
-    {"name": "Zenith",       "fn": anim_top},
-    {"name": "Horizon",      "fn": anim_side},
-    {"name": "Cells",        "fn": anim_voronoi},
-    {"name": "Bloom",        "fn": anim_glow},
-    {"name": "Spark",        "fn": anim_point},
-    {"name": "Strobe",       "fn": anim_flash},
-    {"name": "Cross",        "fn": anim_sweep2},
-    {"name": "Diamond",      "fn": anim_shape},
-    {"name": "Ripple",       "fn": anim_pond},
-    {"name": "Echo",         "fn": anim_trail},
-    {"name": "Quartz",       "fn": anim_crystal},
-    {"name": "Ghost",        "fn": anim_fade},
-    {"name": "DNA",          "fn": anim_helix},
-    {"name": "Wavelet",      "fn": anim_sinus},
-    {"name": "Beams",        "fn": anim_laser},
-    {"name": "Comet",        "fn": anim_streak},
-    {"name": "Bubble",       "fn": anim_float},
-    {"name": "Swarm",        "fn": anim_boids},
-    {"name": "Clock",        "fn": anim_time},
-    {"name": "Gear",         "fn": anim_rotary},
-    {"name": "Pulse2",       "fn": anim_heart},
-    {"name": "ZigZag",       "fn": anim_ang},
-    {"name": "Static",       "fn": anim_fuzz},
-    {"name": "Scanline",     "fn": anim_crt},
-    {"name": "Wormhole",     "fn": anim_zoom},
-    {"name": "Nebula2",      "fn": anim_flow},
-    {"name": "Particles",    "fn": anim_dust},
-    {"name": "Fireworks",    "fn": anim_pop},
-    {"name": "Waves",        "fn": anim_ocean},
-    {"name": "Binary",       "fn": anim_bits},
-    {"name": "Aurora2",      "fn": anim_sky},
-    {"name": "Circuit",      "fn": anim_tech},
-    {"name": "Glitch2",      "fn": anim_shiver},
-    {"name": "Focus",        "fn": anim_lens},
-    {"name": "Phase",        "fn": anim_shift},
-    {"name": "Eruption",     "fn": anim_lavaflow},
-    {"name": "Prism2",       "fn": anim_rainbow},
-    {"name": "Spiral2",      "fn": anim_twist2},
-    {"name": "Echoes",       "fn": anim_ghosting},
-    {"name": "Radiate",      "fn": anim_sun},
-    {"name": "Pixels2",      "fn": anim_block},
-    {"name": "Tides",        "fn": anim_drift},
-    {"name": "Signals",      "fn": anim_ping},
-    {"name": "Grid2",        "fn": anim_wire},
-    {"name": "Cyber",        "fn": anim_run},
-    {"name": "Static2",      "fn": anim_grain},
-    {"name": "Mirage",       "fn": anim_wave3},
-    {"name": "Orbit2",       "fn": anim_moon},
-    {"name": "Flow2",        "fn": anim_wind},
-    {"name": "Pulse3",       "fn": anim_beat},
-    {"name": "Rain2",        "fn": anim_storm},
-    {"name": "Bolt2",        "fn": anim_shock},
-    {"name": "Void2",        "fn": anim_dark},
-    {"name": "Star2",        "fn": anim_nova},
-    {"name": "Pulse4",       "fn": anim_breath},
-    {"name": "Warp",         "fn": anim_speed},
-    {"name": "Glitch3",      "fn": anim_digital2},
-    {"name": "Neon",         "fn": anim_glow2},
-    {"name": "Synth",        "fn": anim_retro},
-    {"name": "Flicker",      "fn": anim_candle},
-    {"name": "Beam2",        "fn": anim_shaft},
-    {"name": "Aura3",        "fn": anim_halo},
+    {"name": "Interference", "fn": anim_wave},       #  1 keep
+    {"name": "Plasma",       "fn": anim_plasma},      #  2 keep
+    {"name": "Scanner",      "fn": anim_scanner},     #  3 keep
+    {"name": "Pixels",       "fn": anim_noise},       #  5 keep
+    {"name": "Orbit",        "fn": anim_circle},      #  7 keep
+    {"name": "Matrix",       "fn": anim_digital},     #  9 keep
+    {"name": "Blizzard",     "fn": anim_snow},        # 10 keep
+    {"name": "Nebula",       "fn": anim_cloud},       # 11 keep
+    {"name": "Lava",         "fn": anim_blob},        # 12 keep
+    {"name": "Sparkle",      "fn": anim_sparkle},     # 13 keep
+    {"name": "Tunnel",       "fn": anim_tunnel},      # 14 keep
+    {"name": "Bonfire",      "fn": anim_fire},        # 15 keep
+    {"name": "Vortex",       "fn": anim_spiral},      # 17 keep
+    {"name": "Stripes",      "fn": anim_bands},       # 18 keep
+    {"name": "Twister",      "fn": anim_twist},       # 21 keep
+    {"name": "Bouncer",      "fn": anim_bounce},      # 22 keep
+    {"name": "Falling",      "fn": anim_gravity},     # 23 keep
+    {"name": "Prism",        "fn": anim_tint},        # 27 keep
+    {"name": "Flow",         "fn": anim_flux},        # 28 keep
+    {"name": "Diamond",      "fn": anim_shape},       # 36 keep
+    {"name": "Ripple",       "fn": anim_pond},        # 37 keep
+    {"name": "Echo",         "fn": anim_trail},       # 38 keep
+    {"name": "Ghost",        "fn": anim_fade},        # 40 keep
+    {"name": "DNA",          "fn": anim_helix},       # 41 keep
+    {"name": "Beams",        "fn": anim_laser},       # 43 keep
+    {"name": "Comet",        "fn": anim_streak},      # 44 keep
+    {"name": "Gear",         "fn": anim_rotary},      # 48 keep
+    {"name": "ZigZag",       "fn": anim_ang},         # 50 keep
+    {"name": "Wormhole",     "fn": anim_zoom},        # 53 keep
+    {"name": "Nebula2",      "fn": anim_flow},        # 54 keep
+    {"name": "Waves",        "fn": anim_ocean},       # 57 keep
+    {"name": "Focus",        "fn": anim_lens},        # 62 keep
+    {"name": "Eruption",     "fn": anim_lavaflow},    # 64 keep
+    {"name": "Prism2",       "fn": anim_rainbow},     # 65 keep
+    {"name": "Echoes",       "fn": anim_ghosting},    # 67 keep
+    {"name": "Radiate",      "fn": anim_sun},         # 68 keep
+    {"name": "Tides",        "fn": anim_drift},       # 70 keep
+    {"name": "Mirage",       "fn": anim_wave3},       # 75 keep
 ]
