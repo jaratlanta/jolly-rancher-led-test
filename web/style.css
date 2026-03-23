@@ -1,0 +1,569 @@
+/* ─── TEST PANEL Dark Theme ────────────────────────────────────────────────── */
+
+:root {
+    --bg: #0a0a0f;
+    --bg-card: #111118;
+    --bg-hover: #1a1a24;
+    --border: #222233;
+    --text: #e0e0e8;
+    --text-dim: #666680;
+    --text-muted: #444458;
+    --accent: #00ccff;
+    --accent-dim: #005577;
+    --green: #00ff88;
+    --red: #ff4466;
+    --orange: #ff8800;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Mono', 'Fira Code', monospace;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+}
+
+.hidden { display: none !important; }
+
+/* ─── Header ──────────────────────────────────────────────────────────────── */
+
+.header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-card);
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+/* ─── Model Toggle ────────────────────────────────────────────────────────── */
+
+.model-toggle {
+    display: flex;
+    gap: 4px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 3px;
+}
+
+.model-btn {
+    padding: 6px 14px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-dim);
+    font-size: 0.7rem;
+    font-family: inherit;
+    font-weight: 600;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.model-btn:hover {
+    color: var(--text);
+}
+
+.model-btn.active {
+    background: var(--accent-dim);
+    color: #fff;
+    box-shadow: 0 0 8px rgba(0, 204, 255, 0.2);
+}
+
+/* ─── Status ──────────────────────────────────────────────────────────────── */
+
+.status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--red);
+    transition: background 0.3s;
+}
+
+.status-dot.connected {
+    background: var(--green);
+    box-shadow: 0 0 6px var(--green);
+}
+
+/* ─── Main Layout ─────────────────────────────────────────────────────────── */
+
+.main {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 24px;
+}
+
+/* ─── Single Panel Preview (Test Panel) ───────────────────────────────────── */
+
+.matrix-container {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 24px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+#matrix-canvas {
+    display: block;
+    border-radius: 4px;
+    image-rendering: pixelated;
+    max-width: 100%;
+    height: auto;
+}
+
+/* ─── U-Shape Preview (Jolly Rancher) ─────────────────────────────────────── */
+
+.ushape-container {
+    margin-bottom: 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.ushape-top {
+    display: flex;
+    justify-content: center;
+}
+
+.ushape-bottom {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+}
+
+.ushape-gap {
+    width: 16px;
+}
+
+.panel-wrap {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px;
+    position: relative;
+}
+
+.panel-label {
+    position: absolute;
+    top: -8px;
+    left: 12px;
+    background: var(--bg-card);
+    padding: 0 6px;
+    font-size: 0.55rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.panel-wrap canvas {
+    display: block;
+    border-radius: 3px;
+    max-width: 100%;
+    height: auto;
+}
+
+/* ─── Controls Section ────────────────────────────────────────────────────── */
+
+.controls {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.control-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 18px;
+}
+
+.control-row.navigation {
+    justify-content: center;
+    gap: 24px;
+}
+
+/* ─── Navigation Buttons (Anim / Palette cycling) ────────────────────────── */
+
+.nav-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.nav-btn {
+    background: var(--bg-hover);
+    border: 1px solid var(--border);
+    color: var(--text);
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    user-select: none;
+}
+
+.nav-btn:hover {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+    color: #fff;
+}
+
+.nav-btn:active {
+    transform: scale(0.95);
+}
+
+.nav-label {
+    text-align: center;
+    min-width: 130px;
+}
+
+.nav-label .name {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.nav-label .sub {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+.nav-divider {
+    width: 1px;
+    height: 40px;
+    background: var(--border);
+}
+
+/* ─── Sliders ─────────────────────────────────────────────────────────────── */
+
+.slider-group {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.slider-label {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    min-width: 70px;
+}
+
+.slider-group input[type="range"] {
+    flex: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--border);
+    outline: none;
+}
+
+.slider-group input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+    box-shadow: 0 0 6px rgba(0, 204, 255, 0.3);
+}
+
+.slider-value {
+    font-size: 0.8rem;
+    color: var(--accent);
+    min-width: 45px;
+    text-align: right;
+    font-weight: 600;
+}
+
+/* ─── Action Buttons ──────────────────────────────────────────────────────── */
+
+.actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.action-btn {
+    padding: 8px 16px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-hover);
+    color: var(--text);
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-family: inherit;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.action-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.action-btn.danger {
+    border-color: var(--red);
+    color: var(--red);
+}
+
+.action-btn.danger:hover {
+    background: rgba(255, 68, 102, 0.1);
+}
+
+.action-btn.active {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+    color: #fff;
+}
+
+/* ─── FX Chips ────────────────────────────────────────────────────────────── */
+
+.fx-row {
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.fx-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    flex: 1;
+}
+
+.fx-chip {
+    padding: 5px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text-dim);
+    font-size: 0.65rem;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    user-select: none;
+}
+
+.fx-chip:hover {
+    border-color: var(--accent-dim);
+    color: var(--text);
+}
+
+.fx-chip.active {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+    color: #fff;
+    box-shadow: 0 0 8px rgba(0, 204, 255, 0.15);
+}
+
+/* ─── Presets ─────────────────────────────────────────────────────────────── */
+
+.presets-section {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+}
+
+.presets-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+}
+
+.presets-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 100%;
+}
+
+.preset-empty {
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    text-align: center;
+    padding: 8px;
+}
+
+.preset-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    transition: all 0.15s;
+}
+
+.preset-row:hover {
+    border-color: var(--accent-dim);
+    background: var(--bg-hover);
+}
+
+.preset-row.preset-active {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+}
+
+.preset-row.preset-active .preset-name {
+    color: #fff;
+}
+
+.preset-row.preset-active .preset-detail {
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.preset-info {
+    flex: 1;
+    cursor: pointer;
+    min-width: 0;
+}
+
+.preset-name {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.preset-detail {
+    font-size: 0.55rem;
+    color: var(--text-muted);
+    margin-top: 1px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.preset-delete {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    line-height: 1;
+    transition: all 0.15s;
+    flex-shrink: 0;
+    margin-left: 8px;
+}
+
+.preset-delete:hover {
+    color: var(--red);
+    border-color: var(--red);
+    background: rgba(255, 68, 102, 0.1);
+}
+
+/* ─── Diagnostics Dropdown ────────────────────────────────────────────────── */
+
+.diag-select {
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-hover);
+    color: var(--text);
+    font-size: 0.75rem;
+    font-family: inherit;
+    cursor: pointer;
+    outline: none;
+}
+
+.diag-select:focus {
+    border-color: var(--accent);
+}
+
+/* ─── Status Bar ──────────────────────────────────────────────────────────── */
+
+.status-bar {
+    margin-top: 16px;
+    padding: 10px 18px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.status-bar span {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* ─── Keyboard Hint ───────────────────────────────────────────────────────── */
+
+.keyhint {
+    text-align: center;
+    margin-top: 12px;
+    font-size: 0.6rem;
+    color: var(--text-muted);
+}
+
+kbd {
+    display: inline-block;
+    padding: 1px 5px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: var(--bg-hover);
+    font-family: inherit;
+    font-size: 0.6rem;
+}
+
+/* ─── Responsive ──────────────────────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+    .main { padding: 12px; }
+    .control-row.navigation { gap: 12px; }
+    .nav-label { min-width: 90px; }
+    .nav-label .name { font-size: 0.8rem; }
+    .nav-divider { height: 30px; }
+    .header { padding: 12px 16px; }
+    .ushape-bottom { flex-direction: column; align-items: center; }
+    .ushape-gap { width: 0; height: 8px; }
+}

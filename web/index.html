@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TEST PANEL</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="header">
+    <div class="header-left">
+        <div class="model-toggle" id="model-toggle">
+            <!-- Populated by JS -->
+        </div>
+    </div>
+    <div class="status">
+        <span id="status-text">Connecting...</span>
+        <div class="status-dot" id="status-dot"></div>
+    </div>
+</div>
+
+<div class="main">
+
+    <!-- Single Panel Preview (Test Panel mode) -->
+    <div class="matrix-container" id="single-view">
+        <canvas id="matrix-canvas"></canvas>
+    </div>
+
+    <!-- U-Shape Preview (Jolly Rancher mode) -->
+    <div class="ushape-container hidden" id="ushape-view">
+        <div class="ushape-top">
+            <div class="panel-wrap">
+                <div class="panel-label">Front</div>
+                <canvas id="front-canvas"></canvas>
+            </div>
+        </div>
+        <div class="ushape-bottom">
+            <div class="panel-wrap">
+                <div class="panel-label">Left Side</div>
+                <canvas id="left-canvas"></canvas>
+            </div>
+            <div class="ushape-gap"></div>
+            <div class="panel-wrap">
+                <div class="panel-label">Right Side</div>
+                <canvas id="right-canvas"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <div class="controls">
+
+        <!-- Animation + Palette Navigation -->
+        <div class="control-row navigation">
+            <div class="nav-group">
+                <button class="nav-btn" id="anim-prev" title="Previous animation">&#9664;</button>
+                <div class="nav-label">
+                    <div class="name" id="anim-name">&mdash;</div>
+                    <div class="sub" id="anim-sub">Animation 0/0</div>
+                </div>
+                <button class="nav-btn" id="anim-next" title="Next animation">&#9654;</button>
+            </div>
+
+            <div class="nav-divider"></div>
+
+            <div class="nav-group">
+                <button class="nav-btn" id="pal-prev" title="Previous palette">&#9664;</button>
+                <div class="nav-label">
+                    <div class="name" id="pal-name">&mdash;</div>
+                    <div class="sub" id="pal-sub">Palette 0/0</div>
+                </div>
+                <button class="nav-btn" id="pal-next" title="Next palette">&#9654;</button>
+            </div>
+        </div>
+
+        <!-- Brightness + Speed Sliders -->
+        <div class="control-row">
+            <div class="slider-group">
+                <span class="slider-label">Brightness</span>
+                <input type="range" id="brightness-slider" min="0" max="255" value="128">
+                <span class="slider-value" id="brightness-value">50%</span>
+            </div>
+        </div>
+
+        <div class="control-row">
+            <div class="slider-group">
+                <span class="slider-label">Speed</span>
+                <input type="range" id="speed-slider" min="10" max="500" value="100">
+                <span class="slider-value" id="speed-value">1.0x</span>
+            </div>
+        </div>
+
+        <!-- FX Selection -->
+        <div class="control-row fx-row">
+            <span class="slider-label">FX</span>
+            <div class="fx-chips" id="fx-chips"></div>
+        </div>
+
+        <!-- FX Intensity -->
+        <div class="control-row" id="fx-intensity-row" style="display: none;">
+            <div class="slider-group">
+                <span class="slider-label">FX Amount</span>
+                <input type="range" id="fx-intensity-slider" min="0" max="100" value="50">
+                <span class="slider-value" id="fx-intensity-value">50%</span>
+            </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="control-row">
+            <div class="actions">
+                <button class="action-btn danger" id="blackout-btn">All Off</button>
+                <select class="diag-select" id="diag-select">
+                    <option value="">Diagnostics...</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Presets -->
+        <div class="control-row presets-section">
+            <div class="presets-header">
+                <span class="slider-label">Presets</span>
+                <button class="action-btn" id="save-preset-btn">+ Save Current</button>
+            </div>
+            <div class="presets-list" id="presets-list">
+                <div class="preset-empty">No saved presets</div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Status Bar -->
+    <div class="status-bar">
+        <span id="fps-display">30 fps</span>
+        <span>&middot;</span>
+        <span id="pixel-display">288 pixels</span>
+        <span>&middot;</span>
+        <span id="size-display">24 x 12</span>
+        <span>&middot;</span>
+        <span id="ip-display">&mdash;</span>
+    </div>
+
+    <div class="keyhint">
+        <kbd>&larr;</kbd> <kbd>&rarr;</kbd> cycle presets
+        &nbsp;&nbsp;
+        <kbd>&uarr;</kbd> <kbd>&darr;</kbd> palette
+        &nbsp;&nbsp;
+        <kbd>Space</kbd> randomize
+        &nbsp;&nbsp;
+        <kbd>F</kbd> cycle FX
+        &nbsp;&nbsp;
+        <kbd>M</kbd> switch model
+        &nbsp;&nbsp;
+        <kbd>S</kbd> save preset
+    </div>
+
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

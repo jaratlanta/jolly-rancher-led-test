@@ -1,0 +1,5 @@
+sacn>=1.9
+numpy>=1.21
+fastapi>=0.104
+uvicorn[standard]>=0.24
+websockets>=12.0
