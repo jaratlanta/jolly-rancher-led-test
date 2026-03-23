@@ -334,10 +334,13 @@ class FrameEngine:
         return frame
 
     def _frame_loop(self):
-        """Main frame generation loop running in a background thread."""
+        """Main frame generation loop running in a background thread.
+        Catches all exceptions so the loop survives sleep/wake cycles.
+        """
         frame_interval = 1.0 / self.fps
 
         while self.running:
+          try:
             t0 = time.monotonic()
 
             if self.blackout:
@@ -383,6 +386,10 @@ class FrameEngine:
             sleep_time = frame_interval - elapsed
             if sleep_time > 0:
                 time.sleep(sleep_time)
+
+          except Exception:
+            # Survive network drops, sleep/wake, etc.
+            time.sleep(0.5)
 
     def _broadcast_frame(self, frame_bytes):
         """Send frame data to all connected WebSocket clients."""
