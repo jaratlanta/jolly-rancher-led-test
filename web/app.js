@@ -17,6 +17,13 @@ let vcWidth = 24;
 let vcHeight = 12;
 let panels = [];
 
+// Cycle state
+let cycleActive = false;
+let cycleTimerId = null;
+let cycleCountdownId = null;
+let cycleNextTime = 0;
+let cyclePrevPresetIdx = -1;
+
 // Webcam state
 let webcamActive = false;
 let webcamStream = null;
@@ -492,6 +499,84 @@ function renderPresetsList() {
     });
 }
 
+// ─── Preset Cycle ────────────────────────────────────────────────────────────
+
+function toggleCycle() {
+    if (cycleActive) {
+        stopCycle();
+    } else {
+        startCycle();
+    }
+}
+
+function startCycle() {
+    if (presets.length === 0) return;
+    cycleActive = true;
+    cyclePrevPresetIdx = currentPresetIdx;
+
+    updateCycleUI();
+    cycleNext();  // load first one immediately
+    scheduleCycle();
+}
+
+function stopCycle() {
+    cycleActive = false;
+    if (cycleTimerId) { clearTimeout(cycleTimerId); cycleTimerId = null; }
+    if (cycleCountdownId) { clearInterval(cycleCountdownId); cycleCountdownId = null; }
+    updateCycleUI();
+}
+
+function getCycleInterval() {
+    return parseInt(document.getElementById('cycle-interval').value) * 1000;
+}
+
+function scheduleCycle() {
+    if (!cycleActive) return;
+    const interval = getCycleInterval();
+    cycleNextTime = Date.now() + interval;
+
+    // Update countdown every second
+    if (cycleCountdownId) clearInterval(cycleCountdownId);
+    cycleCountdownId = setInterval(updateCountdown, 1000);
+    updateCountdown();
+
+    if (cycleTimerId) clearTimeout(cycleTimerId);
+    cycleTimerId = setTimeout(() => {
+        if (!cycleActive) return;
+        cycleNext();
+        scheduleCycle();
+    }, interval);
+}
+
+function cycleNext() {
+    if (presets.length === 0) { stopCycle(); return; }
+    currentPresetIdx = (currentPresetIdx + 1) % presets.length;
+    loadPreset(presets[currentPresetIdx].id);
+    highlightPreset();
+}
+
+function updateCountdown() {
+    const el = document.getElementById('cycle-countdown');
+    if (!cycleActive) { el.textContent = ''; return; }
+    const remaining = Math.max(0, Math.ceil((cycleNextTime - Date.now()) / 1000));
+    el.textContent = remaining + 's';
+}
+
+function updateCycleUI() {
+    const btn = document.getElementById('cycle-btn');
+    const countdown = document.getElementById('cycle-countdown');
+    if (cycleActive) {
+        btn.classList.add('active');
+        btn.textContent = 'Stop';
+        countdown.classList.remove('hidden');
+    } else {
+        btn.classList.remove('active');
+        btn.textContent = 'Cycle';
+        countdown.classList.add('hidden');
+        countdown.textContent = '';
+    }
+}
+
 // ─── Webcam ──────────────────────────────────────────────────────────────────
 
 function initWebcamElements() {
@@ -670,6 +755,16 @@ document.getElementById('diag-select').addEventListener('change', (e) => {
 // Save preset button
 document.getElementById('save-preset-btn').addEventListener('click', savePreset);
 
+// Cycle controls
+document.getElementById('cycle-btn').addEventListener('click', toggleCycle);
+document.getElementById('cycle-interval').addEventListener('change', () => {
+    if (cycleActive) {
+        // Restart timer with new interval
+        if (cycleTimerId) clearTimeout(cycleTimerId);
+        scheduleCycle();
+    }
+});
+
 // Source toggle
 document.getElementById('source-anim-btn').addEventListener('click', () => {
     if (webcamActive) stopWebcam();
@@ -725,6 +820,10 @@ document.addEventListener('keydown', (e) => {
         case 'm': case 'M':
             e.preventDefault();
             cycleModel();
+            break;
+        case 'c': case 'C':
+            e.preventDefault();
+            toggleCycle();
             break;
         case 'w': case 'W':
             e.preventDefault();

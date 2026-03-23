@@ -492,6 +492,45 @@ body {
     width: 100%;
 }
 
+.presets-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.cycle-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.cycle-btn.active {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+    color: #fff;
+    animation: cycle-glow 2s ease-in-out infinite;
+}
+
+@keyframes cycle-glow {
+    0%, 100% { box-shadow: 0 0 4px rgba(0, 204, 255, 0.2); }
+    50% { box-shadow: 0 0 10px rgba(0, 204, 255, 0.4); }
+}
+
+.cycle-interval {
+    width: 55px;
+    font-size: 0.65rem;
+    padding: 5px 6px;
+}
+
+.cycle-countdown {
+    font-size: 0.6rem;
+    color: var(--accent);
+    font-weight: 600;
+    min-width: 28px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+
 .presets-list {
     display: flex;
     flex-direction: column;

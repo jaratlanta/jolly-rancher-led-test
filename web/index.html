@@ -146,7 +146,19 @@
         <div class="control-row presets-section">
             <div class="presets-header">
                 <span class="slider-label">Presets</span>
-                <button class="action-btn" id="save-preset-btn">+ Save Current</button>
+                <div class="presets-actions">
+                    <div class="cycle-controls">
+                        <button class="action-btn cycle-btn" id="cycle-btn">Cycle</button>
+                        <select class="diag-select cycle-interval" id="cycle-interval">
+                            <option value="5">5s</option>
+                            <option value="30">30s</option>
+                            <option value="60" selected>1m</option>
+                            <option value="120">2m</option>
+                        </select>
+                        <span class="cycle-countdown hidden" id="cycle-countdown"></span>
+                    </div>
+                    <button class="action-btn" id="save-preset-btn">+ Save</button>
+                </div>
             </div>
             <div class="presets-list" id="presets-list">
                 <div class="preset-empty">No saved presets</div>
@@ -178,6 +190,8 @@
         <kbd>M</kbd> switch model
         &nbsp;&nbsp;
         <kbd>S</kbd> save preset
+        &nbsp;&nbsp;
+        <kbd>C</kbd> cycle presets
         &nbsp;&nbsp;
         <kbd>W</kbd> webcam
     </div>
