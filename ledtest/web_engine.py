@@ -33,6 +33,12 @@ class FrameEngine:
         self.running = False
         self.blackout = False
 
+        # Crossfade transition
+        self._crossfade_active = False
+        self._crossfade_start = 0.0
+        self._crossfade_duration = 1.5  # seconds
+        self._crossfade_from_frame = None  # snapshot of last frame before change
+
         # Diagnostic mode (uses original PATTERNS)
         self.diagnostic_mode = False
         self.diagnostic_key = None
@@ -138,15 +144,28 @@ class FrameEngine:
         if was_running:
             self.start()
 
+    def _start_crossfade(self):
+        """Snapshot the current frame and begin a crossfade transition."""
+        if self.current_frame_rgb is not None:
+            self._crossfade_from_frame = self.current_frame_rgb.copy()
+            self._crossfade_active = True
+            self._crossfade_start = time.monotonic()
+
     def set_animation(self, idx):
         """Switch to animation by index."""
+        new_idx = idx % len(ANIMATIONS)
+        if new_idx != self.animation_idx:
+            self._start_crossfade()
         self.diagnostic_mode = False
         self.diagnostic_gen = None
-        self.animation_idx = idx % len(ANIMATIONS)
+        self.animation_idx = new_idx
 
     def set_palette(self, idx):
         """Switch to palette by index."""
-        self.palette_idx = idx % len(PALETTES)
+        new_idx = idx % len(PALETTES)
+        if new_idx != self.palette_idx:
+            self._start_crossfade()
+        self.palette_idx = new_idx
 
     def set_brightness(self, value):
         """Set brightness 0-255."""
@@ -332,6 +351,18 @@ class FrameEngine:
                     frame_rgb = np.zeros((self.height, self.width, 3), dtype=np.uint8)
             else:
                 frame_rgb = self._generate_animation_frame()
+
+            # Crossfade transition
+            if self._crossfade_active and self._crossfade_from_frame is not None:
+                elapsed_cf = time.monotonic() - self._crossfade_start
+                alpha = min(1.0, elapsed_cf / self._crossfade_duration)
+                if alpha < 1.0:
+                    old = self._crossfade_from_frame.astype(np.float32)
+                    new = frame_rgb.astype(np.float32)
+                    frame_rgb = (old * (1.0 - alpha) + new * alpha).astype(np.uint8)
+                else:
+                    self._crossfade_active = False
+                    self._crossfade_from_frame = None
 
             # Apply post-processing FX
             frame_rgb = self.fx.process(frame_rgb, frame_interval)
