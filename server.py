@@ -21,11 +21,13 @@ import uvicorn
 
 from ledtest.web_engine import FrameEngine
 from ledtest.presets import get_presets, save_preset, delete_preset, get_preset
+from ledtest.knob import KnobController
 
 # ─── App Setup ────────────────────────────────────────────────────────────────
 
 app = FastAPI(title="TEST PANEL")
 engine = FrameEngine()
+knob = KnobController(engine, presets_getter=get_presets)
 
 WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
 
@@ -45,10 +47,16 @@ async def get_state():
     return JSONResponse(engine.get_state())
 
 
+@app.get("/api/patterns")
+async def get_patterns():
+    from ledtest.animations import PATTERNS
+    return JSONResponse([{"idx": i, "name": p["name"]} for i, p in enumerate(PATTERNS)])
+
+# Backward compat alias
 @app.get("/api/animations")
 async def get_animations():
-    from ledtest.animations import ANIMATIONS
-    return JSONResponse([{"idx": i, "name": a["name"]} for i, a in enumerate(ANIMATIONS)])
+    from ledtest.animations import PATTERNS
+    return JSONResponse([{"idx": i, "name": p["name"]} for i, p in enumerate(PATTERNS)])
 
 
 @app.get("/api/palettes")
@@ -73,6 +81,12 @@ async def get_fx():
 async def get_models():
     from ledtest.models import get_model_list
     return JSONResponse(get_model_list())
+
+
+@app.get("/api/audio_modes")
+async def get_audio_modes():
+    from ledtest.audio_fx import AUDIO_MODES
+    return JSONResponse(AUDIO_MODES)
 
 
 @app.get("/api/presets")
@@ -106,8 +120,8 @@ async def websocket_endpoint(ws: WebSocket):
             data = json.loads(msg)
             cmd = data.get("cmd")
 
-            if cmd == "set_animation":
-                engine.set_animation(data["idx"])
+            if cmd == "set_pattern" or cmd == "set_animation":
+                engine.set_pattern(data["idx"])
             elif cmd == "set_palette":
                 engine.set_palette(data["idx"])
             elif cmd == "set_brightness":
@@ -124,6 +138,17 @@ async def websocket_endpoint(ws: WebSocket):
                 engine.set_fx_intensity(data["value"])
             elif cmd == "set_webcam":
                 engine.set_webcam(data.get("on", False))
+            elif cmd == "set_audio_mode":
+                engine.set_audio_mode(data["key"])
+            elif cmd == "set_audio_sensitivity":
+                engine.set_audio_sensitivity(data["value"])
+            elif cmd == "set_audio_enabled":
+                engine.set_audio_enabled(data.get("on", False))
+            elif cmd == "audio_data":
+                engine.update_audio_data(
+                    data.get("bass", 0), data.get("mid", 0), data.get("treble", 0)
+                )
+                continue  # Skip state broadcast for high-frequency audio data
             elif cmd == "set_model":
                 engine.reconfigure(data["key"])
             elif cmd == "save_preset":
@@ -136,9 +161,10 @@ async def websocket_endpoint(ws: WebSocket):
                 p = get_preset(data["id"])
                 if p and "preset" in p:
                     pd = p["preset"]
-                    # Skip animation when webcam is active
-                    if "animation_idx" in pd and not engine.webcam_mode:
-                        engine.set_animation(pd["animation_idx"])
+                    # Skip pattern when webcam is active
+                    pidx = pd.get("pattern_idx", pd.get("animation_idx"))
+                    if pidx is not None and not engine.webcam_mode:
+                        engine.set_pattern(pidx)
                     if "palette_idx" in pd:
                         engine.set_palette(pd["palette_idx"])
                     if "fx" in pd:
@@ -149,6 +175,8 @@ async def websocket_endpoint(ws: WebSocket):
                         engine.set_brightness(pd["brightness"])
                     if "speed" in pd:
                         engine.set_speed(pd["speed"])
+                    if "audio_mode" in pd:
+                        engine.set_audio_mode(pd["audio_mode"])
             elif cmd == "get_state":
                 pass  # just respond with state below
 
@@ -191,6 +219,27 @@ async def startup():
     print()
     engine.start()
     print(f"  E1.31 sender started")
+
+    # Start knob controller (non-blocking, auto-reconnects)
+    def broadcast_state():
+        """Push state to all WS clients when the knob changes something."""
+        import asyncio as _asyncio
+        state_msg = json.dumps({"type": "state", "data": engine.get_state()})
+        with engine.ws_lock:
+            for ws in list(engine.ws_clients):
+                try:
+                    loop = ws._loop if hasattr(ws, '_loop') else None
+                    if loop and loop.is_running():
+                        _asyncio.run_coroutine_threadsafe(ws.send_text(state_msg), loop)
+                except Exception:
+                    pass
+
+    knob.set_ws_broadcast(broadcast_state)
+    if knob.start():
+        print(f"  Knob listener started (searching for Baseline Knob V2.1)")
+    else:
+        print(f"  Knob: not available (install hidapi for USB knob support)")
+
     print(f"  Open http://localhost:8080")
     print("=" * 50 + "\n")
 
@@ -198,6 +247,7 @@ async def startup():
 @app.on_event("shutdown")
 async def shutdown():
     print("\nShutting down...")
+    knob.stop()
     engine.stop()
     print("Done.")
 

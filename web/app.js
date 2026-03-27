@@ -245,9 +245,9 @@ function updateUI() {
     document.title = state.model_name || 'TEST PANEL';
 
     // Animation
-    document.getElementById('anim-name').textContent = state.animation_name || '—';
+    document.getElementById('anim-name').textContent = state.pattern_name || '—';
     document.getElementById('anim-sub').textContent =
-        `Animation ${(state.animation_idx || 0) + 1}/${state.animation_count || 0}`;
+        `Pattern ${(state.pattern_idx || 0) + 1}/${state.pattern_count || 0}`;
 
     // Palette
     document.getElementById('pal-name').textContent = state.palette_name || '—';
@@ -291,6 +291,9 @@ function updateUI() {
 
     // FX
     updateFXChips();
+
+    // Audio / animation mode
+    updateAnimModeUI();
 
     // Status bar
     document.getElementById('fps-display').textContent = `${state.fps || 30} fps`;
@@ -409,9 +412,9 @@ function cycleFX(direction) {
 let currentPresetIdx = -1;
 
 function randomize() {
-    const animIdx = Math.floor(Math.random() * (state.animation_count || 90));
+    const animIdx = Math.floor(Math.random() * (state.pattern_count || 90));
     const palIdx = Math.floor(Math.random() * (state.palette_count || 32));
-    send({ cmd: 'set_animation', idx: animIdx });
+    send({ cmd: 'set_pattern', idx: animIdx });
     send({ cmd: 'set_palette', idx: palIdx });
     currentPresetIdx = -1;
 }
@@ -432,7 +435,7 @@ function highlightPreset() {
 function savePreset() {
     const fx = (state.fx && state.fx !== 'none') ? state.fx : null;
     const parts = [
-        state.animation_name || 'Unknown',
+        state.pattern_name || 'Unknown',
         state.palette_name || 'Unknown',
     ];
     if (fx) parts.push(fx.charAt(0).toUpperCase() + fx.slice(1));
@@ -444,12 +447,13 @@ function savePreset() {
         cmd: 'save_preset',
         name,
         preset: {
-            animation_idx: state.animation_idx,
+            pattern_idx: state.pattern_idx,
             palette_idx: state.palette_idx,
             fx: state.fx || 'none',
             fx_intensity: state.fx_intensity || 0.5,
             brightness: state.brightness,
             speed: state.speed,
+            audio_mode: state.audio_mode || 'none',
         }
     });
 }
@@ -481,7 +485,7 @@ function renderPresetsList() {
         info.addEventListener('click', () => loadPreset(p.id));
         info.innerHTML = `
             <div class="preset-name">${p.name}</div>
-            <div class="preset-detail">${p.preset.animation_name || '?'} &middot; ${p.preset.palette_name || '?'}${p.preset.fx && p.preset.fx !== 'none' ? ' &middot; ' + p.preset.fx : ''}</div>
+            <div class="preset-detail">${p.preset.pattern_name || '?'} &middot; ${p.preset.palette_name || '?'}${p.preset.fx && p.preset.fx !== 'none' ? ' &middot; ' + p.preset.fx : ''}</div>
         `;
 
         const del = document.createElement('button');
@@ -698,12 +702,12 @@ function updateSourceUI() {
 
 // Animation nav
 document.getElementById('anim-prev').addEventListener('click', () => {
-    const idx = ((state.animation_idx || 0) - 1 + (state.animation_count || 90)) % (state.animation_count || 90);
-    send({ cmd: 'set_animation', idx });
+    const idx = ((state.pattern_idx || 0) - 1 + (state.pattern_count || 90)) % (state.pattern_count || 90);
+    send({ cmd: 'set_pattern', idx });
 });
 document.getElementById('anim-next').addEventListener('click', () => {
-    const idx = ((state.animation_idx || 0) + 1) % (state.animation_count || 90);
-    send({ cmd: 'set_animation', idx });
+    const idx = ((state.pattern_idx || 0) + 1) % (state.pattern_count || 90);
+    send({ cmd: 'set_pattern', idx });
 });
 
 // Palette nav
@@ -748,7 +752,7 @@ document.getElementById('diag-select').addEventListener('change', (e) => {
     if (key) {
         send({ cmd: 'set_diagnostic', key });
     } else {
-        send({ cmd: 'set_animation', idx: state.animation_idx || 0 });
+        send({ cmd: 'set_pattern', idx: state.pattern_idx || 0 });
     }
 });
 
@@ -829,6 +833,10 @@ document.addEventListener('keydown', (e) => {
             e.preventDefault();
             toggleWebcam();
             break;
+        case 'a': case 'A':
+            e.preventDefault();
+            toggleAnimMode();
+            break;
         case 's': case 'S':
             if (!e.ctrlKey && !e.metaKey) {
                 e.preventDefault();
@@ -838,10 +846,149 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
+// ─── Audio (BEAT mode) ─────────────────────────────────────────────────────
+
+let audioCtx = null;
+let audioAnalyser = null;
+let audioDataArray = null;
+let audioStream = null;
+let audioEnabled = false;
+let audioAnimFrameId = null;
+
+async function startAudio() {
+    try {
+        audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioCtx.createMediaStreamSource(audioStream);
+        audioAnalyser = audioCtx.createAnalyser();
+        audioAnalyser.fftSize = 256;
+        source.connect(audioAnalyser);
+        audioDataArray = new Uint8Array(audioAnalyser.frequencyBinCount);
+        audioEnabled = true;
+        send({ cmd: 'set_audio_enabled', on: true });
+        audioLoop();
+    } catch (err) {
+        console.error('Microphone access denied:', err);
+        alert('Could not access microphone. Check browser permissions.');
+        // Revert to default mode on failure
+        send({ cmd: 'set_audio_mode', key: 'none' });
+    }
+}
+
+function stopAudio() {
+    audioEnabled = false;
+    if (audioAnimFrameId) {
+        cancelAnimationFrame(audioAnimFrameId);
+        audioAnimFrameId = null;
+    }
+    if (audioStream) {
+        audioStream.getTracks().forEach(t => t.stop());
+        audioStream = null;
+    }
+    if (audioCtx) {
+        audioCtx.close().catch(() => {});
+        audioCtx = null;
+        audioAnalyser = null;
+    }
+    send({ cmd: 'set_audio_enabled', on: false });
+}
+
+function audioLoop() {
+    if (!audioEnabled || !audioAnalyser) return;
+
+    audioAnalyser.getByteFrequencyData(audioDataArray);
+
+    let bass = 0;
+    for (let i = 0; i < 6; i++) bass += audioDataArray[i];
+    bass = (bass / 6) / 255;
+
+    let mid = 0;
+    for (let i = 10; i < 30; i++) mid += audioDataArray[i];
+    mid = (mid / 20) / 255;
+
+    let treble = 0;
+    for (let i = 35; i < 80; i++) treble += audioDataArray[i];
+    treble = (treble / 45) / 255;
+
+    send({ cmd: 'audio_data', bass, mid, treble });
+
+    const bassMeter = document.getElementById('meter-bass');
+    const midMeter = document.getElementById('meter-mid');
+    const trebleMeter = document.getElementById('meter-treble');
+    if (bassMeter) bassMeter.style.height = (bass * 100) + '%';
+    if (midMeter) midMeter.style.height = (mid * 100) + '%';
+    if (trebleMeter) trebleMeter.style.height = (treble * 100) + '%';
+
+    audioAnimFrameId = requestAnimationFrame(audioLoop);
+}
+
+function updateAnimModeUI() {
+    const isAudio = (state.audio_mode || 'none') === 'audio';
+    const defaultBtn = document.getElementById('mode-default-btn');
+    const beatBtn = document.getElementById('mode-beat-btn');
+    const beatControls = document.getElementById('audio-beat-controls');
+    const speedRow = document.getElementById('speed-row');
+    const animModeRow = document.getElementById('anim-mode-row');
+
+    if (defaultBtn && beatBtn) {
+        defaultBtn.classList.toggle('active', !isAudio);
+        beatBtn.classList.toggle('active', isAudio);
+    }
+    if (beatControls) {
+        beatControls.classList.toggle('hidden', !isAudio);
+    }
+    if (speedRow) {
+        speedRow.style.display = isAudio ? 'none' : '';
+    }
+
+    // Hide animation mode row when webcam is active
+    if (animModeRow) {
+        animModeRow.style.display = state.webcam_mode ? 'none' : '';
+    }
+
+    // Update sensitivity slider
+    const sensSlider = document.getElementById('audio-sensitivity-slider');
+    const sensValue = document.getElementById('audio-sensitivity-value');
+    if (sensSlider && sensValue) {
+        sensSlider.value = Math.round((state.audio_sensitivity || 1.0) * 100);
+        sensValue.textContent = (state.audio_sensitivity || 1.0).toFixed(1) + 'x';
+    }
+}
+
+function toggleAnimMode() {
+    const isAudio = (state.audio_mode || 'none') === 'audio';
+    if (isAudio) {
+        // Switch to DEFAULT
+        send({ cmd: 'set_audio_mode', key: 'none' });
+        stopAudio();
+    } else {
+        // Switch to AUDIO (BEAT) — auto-start mic
+        send({ cmd: 'set_audio_mode', key: 'audio' });
+        startAudio();
+    }
+}
+
+// Animation mode toggle handlers
+document.getElementById('mode-default-btn').addEventListener('click', () => {
+    send({ cmd: 'set_audio_mode', key: 'none' });
+    stopAudio();
+});
+document.getElementById('mode-beat-btn').addEventListener('click', () => {
+    send({ cmd: 'set_audio_mode', key: 'audio' });
+    if (!audioEnabled) startAudio();
+});
+
+document.getElementById('audio-sensitivity-slider').addEventListener('input', (e) => {
+    const val = parseInt(e.target.value) / 100;
+    document.getElementById('audio-sensitivity-value').textContent = val.toFixed(1) + 'x';
+    send({ cmd: 'set_audio_sensitivity', value: val });
+});
+
 // ─── Init ────────────────────────────────────────────────────────────────────
 
 initWebcamElements();
 loadModels();
 loadDiagnostics();
 loadFX();
+// Audio mode is handled by DEFAULT/AUDIO(BEAT) toggle
 connect();

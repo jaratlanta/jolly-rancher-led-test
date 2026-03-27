@@ -50,23 +50,23 @@
 
     <div class="controls">
 
-        <!-- Source Toggle: Animation vs Webcam -->
+        <!-- Source Toggle: Pattern vs Webcam -->
         <div class="control-row source-row">
             <div class="source-toggle">
-                <button class="source-btn active" id="source-anim-btn">Animation</button>
+                <button class="source-btn active" id="source-anim-btn">Pattern</button>
                 <button class="source-btn" id="source-webcam-btn">Webcam</button>
             </div>
         </div>
 
-        <!-- Animation Navigation (hidden when webcam active) -->
+        <!-- Pattern Navigation (hidden when webcam active) -->
         <div class="control-row navigation" id="anim-nav-row">
             <div class="nav-group">
-                <button class="nav-btn" id="anim-prev" title="Previous animation">&#9664;</button>
+                <button class="nav-btn" id="anim-prev" title="Previous pattern">&#9664;</button>
                 <div class="nav-label">
                     <div class="name" id="anim-name">&mdash;</div>
-                    <div class="sub" id="anim-sub">Animation 0/0</div>
+                    <div class="sub" id="anim-sub">Pattern 0/0</div>
                 </div>
-                <button class="nav-btn" id="anim-next" title="Next animation">&#9654;</button>
+                <button class="nav-btn" id="anim-next" title="Next pattern">&#9654;</button>
             </div>
 
             <div class="nav-divider"></div>
@@ -78,6 +78,28 @@
                     <div class="sub" id="pal-sub">Palette 0/0</div>
                 </div>
                 <button class="nav-btn" id="pal-next" title="Next palette">&#9654;</button>
+            </div>
+        </div>
+
+        <!-- Animation Mode Toggle: DEFAULT vs AUDIO (BEAT) -->
+        <div class="control-row source-row" id="anim-mode-row">
+            <div class="source-toggle">
+                <button class="source-btn active" id="mode-default-btn">DEFAULT</button>
+                <button class="source-btn" id="mode-beat-btn">AUDIO (BEAT)</button>
+            </div>
+        </div>
+
+        <!-- Audio meters (visible only in AUDIO mode) -->
+        <div class="control-row audio-section hidden" id="audio-beat-controls">
+            <div class="audio-meter">
+                <div class="meter-bar"><div class="meter-fill" id="meter-bass"></div><span>Bass</span></div>
+                <div class="meter-bar"><div class="meter-fill" id="meter-mid"></div><span>Mid</span></div>
+                <div class="meter-bar"><div class="meter-fill" id="meter-treble"></div><span>Treble</span></div>
+            </div>
+            <div class="slider-group">
+                <span class="slider-label">Sensitivity</span>
+                <input type="range" id="audio-sensitivity-slider" min="10" max="300" value="100">
+                <span class="slider-value" id="audio-sensitivity-value">1.0x</span>
             </div>
         </div>
 
@@ -109,7 +131,7 @@
             </div>
         </div>
 
-        <div class="control-row">
+        <div class="control-row" id="speed-row">
             <div class="slider-group">
                 <span class="slider-label">Speed</span>
                 <input type="range" id="speed-slider" min="10" max="500" value="100">
@@ -194,6 +216,8 @@
         <kbd>C</kbd> cycle presets
         &nbsp;&nbsp;
         <kbd>W</kbd> webcam
+        &nbsp;&nbsp;
+        <kbd>A</kbd> audio FX
     </div>
 
 </div>

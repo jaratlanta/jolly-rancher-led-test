@@ -1,7 +1,10 @@
 """
-Visual animations ported from the /jollyrancher Three.js project.
-Each animation is a function: (nx, ny, time) -> brightness 0-255
-where nx, ny are normalized 0..1 coordinates.
+Pattern system: each pattern defines a shape with two animation modes.
+- Default: time-driven auto-movement (fn)
+- Audio: subtle ambient + audio-exaggerated movement (audio_fn)
+
+Pattern functions: (nx, ny, time, width, height) -> brightness 0-255
+Audio functions: (nx, ny, time, width, height, bass, mid, treble) -> brightness 0-255
 
 Palettes map brightness values to RGB colors.
 """
@@ -389,45 +392,287 @@ def anim_halo(nx, ny, t, w, h):
     return 255 if (d > 0.3 and d < 0.35) else 0
 
 
-# ─── Animation Registry ─────────────────────────────────────────────────────
+# ─── Audio Pattern Functions ────────────────────────────────────────────────
+# Each: (nx, ny, audio_time, width, height, bass, mid, treble) -> val (0-255)
+#
+# RULE: NO movement except sound-based movement.
+# - `bass` is used as DIRECT DISPLACEMENT (like a speaker cone position)
+# - `t` (audio_time) provides slow accumulated drift from sustained audio
+# - When silent: bass=0, t frozen → pattern completely static and visible
+# - When bass hits: pattern physically displaces/morphs
+# - Full brightness always — audio never dims the pattern
 
-ANIMATIONS = [
-    {"name": "Interference", "fn": anim_wave},       #  1 keep
-    {"name": "Plasma",       "fn": anim_plasma},      #  2 keep
-    {"name": "Scanner",      "fn": anim_scanner},     #  3 keep
-    {"name": "Pixels",       "fn": anim_noise},       #  5 keep
-    {"name": "Orbit",        "fn": anim_circle},      #  7 keep
-    {"name": "Matrix",       "fn": anim_digital},     #  9 keep
-    {"name": "Blizzard",     "fn": anim_snow},        # 10 keep
-    {"name": "Nebula",       "fn": anim_cloud},       # 11 keep
-    {"name": "Lava",         "fn": anim_blob},        # 12 keep
-    {"name": "Sparkle",      "fn": anim_sparkle},     # 13 keep
-    {"name": "Tunnel",       "fn": anim_tunnel},      # 14 keep
-    {"name": "Bonfire",      "fn": anim_fire},        # 15 keep
-    {"name": "Vortex",       "fn": anim_spiral},      # 17 keep
-    {"name": "Stripes",      "fn": anim_bands},       # 18 keep
-    {"name": "Twister",      "fn": anim_twist},       # 21 keep
-    {"name": "Bouncer",      "fn": anim_bounce},      # 22 keep
-    {"name": "Falling",      "fn": anim_gravity},     # 23 keep
-    {"name": "Prism",        "fn": anim_tint},        # 27 keep
-    {"name": "Flow",         "fn": anim_flux},        # 28 keep
-    {"name": "Diamond",      "fn": anim_shape},       # 36 keep
-    {"name": "Ripple",       "fn": anim_pond},        # 37 keep
-    {"name": "Echo",         "fn": anim_trail},       # 38 keep
-    {"name": "Ghost",        "fn": anim_fade},        # 40 keep
-    {"name": "DNA",          "fn": anim_helix},       # 41 keep
-    {"name": "Beams",        "fn": anim_laser},       # 43 keep
-    {"name": "Comet",        "fn": anim_streak},      # 44 keep
-    {"name": "Gear",         "fn": anim_rotary},      # 48 keep
-    {"name": "ZigZag",       "fn": anim_ang},         # 50 keep
-    {"name": "Wormhole",     "fn": anim_zoom},        # 53 keep
-    {"name": "Nebula2",      "fn": anim_flow},        # 54 keep
-    {"name": "Waves",        "fn": anim_ocean},       # 57 keep
-    {"name": "Focus",        "fn": anim_lens},        # 62 keep
-    {"name": "Eruption",     "fn": anim_lavaflow},    # 64 keep
-    {"name": "Prism2",       "fn": anim_rainbow},     # 65 keep
-    {"name": "Echoes",       "fn": anim_ghosting},    # 67 keep
-    {"name": "Radiate",      "fn": anim_sun},         # 68 keep
-    {"name": "Tides",        "fn": anim_drift},       # 70 keep
-    {"name": "Mirage",       "fn": anim_wave3},       # 75 keep
+def audio_wave(nx, ny, t, w, h, bass, mid, treble):
+    """Interference — wave amplitude displaced by bass."""
+    x, y = nx * w, ny * h
+    # Bass directly pushes the wave amplitude — like a speaker membrane
+    amp = bass * 2.0
+    return int((math.sin(x * 0.1 + t) * math.cos(y * 0.1 - t * 0.5) * amp + 1) * 127)
+
+def audio_plasma(nx, ny, t, w, h, bass, mid, treble):
+    """Plasma — bass expands/contracts plasma cells."""
+    freq = 8 + bass * 12  # bass stretches the cell size
+    v = (math.sin(nx*freq+t) + math.sin(ny*freq+t) +
+         math.sin((nx+ny)*freq+t) + math.sin(math.sqrt(nx*nx+ny*ny)*freq+t) + 4) / 8
+    return int(v * 255)
+
+def audio_scanner(nx, ny, t, w, h, bass, mid, treble):
+    """Scanner — bass directly pushes bar position left/right."""
+    scan_x = 0.5 + (bass - 0.5) * 0.8  # bass displaces from center
+    return int(max(0, 1 - abs(nx - scan_x) * 8) * 255)
+
+def audio_noise(nx, ny, t, w, h, bass, mid, treble):
+    """Pixels — bass/treble control pixel density. Silent = no pixels."""
+    energy = bass + treble
+    if energy < 0.02:
+        return 0
+    threshold = 1.0 - energy * 0.35
+    return 255 if random.random() > threshold else 0
+
+def audio_circle(nx, ny, t, w, h, bass, mid, treble):
+    """Orbit — bass pushes rings outward like a speaker cone."""
+    d = math.sqrt((nx-0.5)**2 + (ny-0.5)**2)
+    ring_radius = 0.15 + bass * 0.35  # bass directly sets ring size
+    return 255 if abs(d - ring_radius) < 0.04 else 0
+
+def audio_digital(nx, ny, t, w, h, bass, mid, treble):
+    """Matrix — bass offsets grid. Treble flickers."""
+    offset = bass * 5  # bass shifts the grid
+    on = (int(nx*10 + offset) % 2 == 0 and int(ny*10 + offset) % 2 == 0)
+    return 255 if on else (int(treble * 60))
+
+def audio_snow(nx, ny, t, w, h, bass, mid, treble):
+    """Blizzard — bass controls snowfall density. Silent = clear."""
+    if bass < 0.02:
+        return 0
+    x, y = nx*w, ny*h
+    threshold = 1.0 - bass * 0.25
+    return 255 if math.sin(x*0.5 + y*0.5 + t*2 + random.random()*5) > threshold else 0
+
+def audio_cloud(nx, ny, t, w, h, bass, mid, treble):
+    """Nebula — bass swells cloud brightness and size."""
+    v = (math.sin(nx*5 + t*0.3) * math.cos(ny*5 - t*0.2) + 1) / 2
+    return int(v * (bass * 255 + 30))  # dim when quiet, bright on bass
+
+def audio_blob(nx, ny, t, w, h, bass, mid, treble):
+    """Lava — bass pushes blobs outward from center."""
+    # Bass displaces blob positions radially
+    cx, cy = nx - 0.5, ny - 0.5
+    push = 1.0 + bass * 2.0  # bass expands the blob field
+    bx, by = cx * push + 0.5, cy * push + 0.5
+    v = (math.sin(bx*3+t) + math.cos(by*4+t*0.8) +
+         math.sin(math.sqrt(bx*bx+by*by)*5-t)) / 3 * 255
+    return int(max(0, v)) if v >= 80 else 0
+
+def audio_sparkle(nx, ny, t, w, h, bass, mid, treble):
+    """Sparkle — treble controls sparkle rate. Silent = dark."""
+    energy = treble + bass * 0.3
+    if energy < 0.03:
+        return 0
+    threshold = 1.0 - energy * 0.15
+    return 255 if random.random() > threshold else 0
+
+def audio_tunnel(nx, ny, t, w, h, bass, mid, treble):
+    """Tunnel — bass directly zooms the tunnel depth."""
+    d = math.sqrt((nx-0.5)**2 + (ny-0.5)**2) + 0.01
+    zoom = bass * 8  # bass directly sets zoom offset
+    return 255 if math.sin(1/d - zoom - t*2) > 0.5 else 0
+
+def audio_fire(nx, ny, t, w, h, bass, mid, treble):
+    """Bonfire — bass controls flame height."""
+    flame_height = bass * 0.8  # bass directly lifts flames
+    v = (math.sin(nx*5+t) * math.cos(ny*2-t*1.5) + (1-ny) * (0.3 + flame_height))
+    return int(max(0, min(255, v * 200)))
+
+def audio_spiral(nx, ny, t, w, h, bass, mid, treble):
+    """Vortex — bass directly rotates the spiral."""
+    a = math.atan2(ny-0.5, nx-0.5)
+    d = math.sqrt((nx-0.5)**2 + (ny-0.5)**2)
+    rotation = bass * 6 + t * 2  # bass directly twists
+    return 255 if math.sin(a*5 + d*20 - rotation) > 0 else 0
+
+def audio_bands(nx, ny, t, w, h, bass, mid, treble):
+    """Stripes — bass directly shifts stripe position."""
+    offset = bass * 3 + t  # bass pushes stripes
+    return 255 if math.sin(nx*20 + offset) > 0.8 else 0
+
+def audio_twist(nx, ny, t, w, h, bass, mid, treble):
+    """Twister — bass directly controls twist amount."""
+    twist_amt = bass * 8  # bass sets distortion directly
+    return 255 if math.sin(nx*10 + math.sin(ny*5 + t)*twist_amt) > 0 else 0
+
+def audio_bounce(nx, ny, t, w, h, bass, mid, treble):
+    """Bouncer — bass directly pushes bar position. Like a VU meter."""
+    by = 0.5 + (bass - 0.5) * 0.6  # bass directly positions the bar
+    return int(max(0, 1 - abs(ny - by) * 10) * 255)
+
+def audio_gravity(nx, ny, t, w, h, bass, mid, treble):
+    """Falling — bass triggers particle drops. Silent = frozen."""
+    if bass < 0.03:
+        return 0
+    speed = t * 8
+    threshold = 0.92 - bass * 0.2
+    return 255 if math.sin(ny*10 + math.sin(nx*5)*10 + speed) > threshold else 0
+
+def audio_tint(nx, ny, t, w, h, bass, mid, treble):
+    """Prism — bass shifts the color blend position."""
+    offset = bass * 3 + t * 0.5
+    return int((math.sin(nx*5 + offset) * math.sin(ny*5 + offset*0.5) + 1) * 127)
+
+def audio_flux(nx, ny, t, w, h, bass, mid, treble):
+    """Flow — bass directly displaces the flow field."""
+    offset = bass * 4 + t
+    v = (math.sin(nx*2+offset) + math.sin(ny*3-offset) + math.sin(nx+ny+offset)) / 3 * 255
+    return int(max(0, min(255, v)))
+
+def audio_shape(nx, ny, t, w, h, bass, mid, treble):
+    """Diamond — bass directly controls diamond size. Speaker cone."""
+    size = 0.05 + bass * 0.4  # bass expands diamond
+    return 255 if (abs(nx-0.5) + abs(ny-0.5) < size) else 0
+
+def audio_pond(nx, ny, t, w, h, bass, mid, treble):
+    """Ripple — bass directly pushes ripple outward from center."""
+    d = math.sqrt((nx-0.5)**2 + (ny-0.5)**2)
+    ripple_push = bass * 0.5 + t * 0.5  # bass pushes the ripple ring out
+    return int(math.sin((d - ripple_push) * 40) * 127 + 127)
+
+def audio_trail(nx, ny, t, w, h, bass, mid, treble):
+    """Echo — mid directly shifts trail position."""
+    offset = mid * 5 + t
+    v = math.sin(nx*10 - offset) * 255
+    return int(max(0, v))
+
+def audio_fade(nx, ny, t, w, h, bass, mid, treble):
+    """Ghost — bass directly controls ghost visibility."""
+    amp = bass * 2.0 + 0.1  # bass brightens the ghost
+    return int(max(0, min(255, nx * ny * amp * 255)))
+
+def audio_helix(nx, ny, t, w, h, bass, mid, treble):
+    """DNA — bass directly compresses/stretches the helix."""
+    stretch = 5 + bass * 8  # bass changes helix frequency
+    phase = t * 2
+    return 255 if abs(math.sin(ny*stretch + math.sin(phase)*3) - nx) < 0.1 else 0
+
+def audio_laser(nx, ny, t, w, h, bass, mid, treble):
+    """Beams — bass directly positions the beam. VU meter style."""
+    beam_y = 0.5 + (bass - 0.5) * 0.8  # bass sets beam Y position
+    return 255 if abs(ny - beam_y) < 0.025 else 0
+
+def audio_streak(nx, ny, t, w, h, bass, mid, treble):
+    """Comet — bass launches comet. Frozen when silent."""
+    pos = (t * 1.0) % 1.0
+    return int(max(0, 1 - abs(nx - pos) * 20) * 255)
+
+def audio_rotary(nx, ny, t, w, h, bass, mid, treble):
+    """Gear — bass directly rotates the gear."""
+    rotation = bass * 4 + t  # bass turns the gear
+    return 255 if math.sin(math.atan2(ny-0.5, nx-0.5)*6 + rotation) > 0.5 else 0
+
+def audio_ang(nx, ny, t, w, h, bass, mid, treble):
+    """ZigZag — bass directly shifts zigzag position."""
+    offset = bass * 5 + t
+    return 255 if math.sin((nx+ny)*20 + offset) > 0.8 else 0
+
+def audio_zoom(nx, ny, t, w, h, bass, mid, treble):
+    """Wormhole — bass directly pushes zoom in/out. Speaker cone."""
+    d = max(0.1, math.sqrt((nx-0.5)**2 + (ny-0.5)**2))
+    # Bass DIRECTLY controls zoom displacement — like a pulsing speaker
+    zoom = bass * 6 + t
+    return 255 if math.sin(1/d - zoom) > 0 else 0
+
+def audio_flow(nx, ny, t, w, h, bass, mid, treble):
+    """Nebula2 — bass displaces flow field."""
+    offset = bass * 3 + t
+    return int((math.sin(nx*10+offset) + math.cos(ny*10+offset)) * 127 + 127)
+
+def audio_ocean(nx, ny, t, w, h, bass, mid, treble):
+    """Waves — bass directly controls wave height."""
+    amp = 0.3 + bass * 1.5  # bass lifts the waves
+    offset = t * 0.5
+    return int((math.sin(nx*5+offset)*amp + math.sin(ny*2+offset*0.5)) / 2 * 255 + 127)
+
+def audio_lens(nx, ny, t, w, h, bass, mid, treble):
+    """Focus — bass directly expands/contracts spotlight."""
+    d = math.sqrt((nx-0.5)**2 + (ny-0.5)**2)
+    spread = 0.1 + bass * 0.4  # bass sets spotlight size
+    return int(max(0, 255 * (1 - d / spread))) if d < spread else 0
+
+def audio_lavaflow(nx, ny, t, w, h, bass, mid, treble):
+    """Eruption — bass pushes lava pattern."""
+    offset = bass * 4 + t
+    return int((math.sin(nx*4+offset) * math.sin(ny*4-offset)) * 127 + 127)
+
+def audio_rainbow(nx, ny, t, w, h, bass, mid, treble):
+    """Prism2 — bass shifts rainbow position."""
+    offset = bass * 0.5 + t * 0.3
+    return int(((nx + ny + offset) % 1) * 255)
+
+def audio_ghosting(nx, ny, t, w, h, bass, mid, treble):
+    """Echoes — mid directly shifts ghost layers."""
+    offset = mid * 3 + t
+    return int(max(0, min(255, math.sin(nx*5-offset)*100 + 100)))
+
+def audio_sun(nx, ny, t, w, h, bass, mid, treble):
+    """Radiate — bass directly expands the glow radius. Speaker push."""
+    d = math.sqrt((nx-0.5)**2 + (ny-0.5)**2)
+    spread = 0.1 + bass * 0.5  # bass pushes glow outward
+    return int(max(0, 255 * (1 - d / spread))) if d < spread else 0
+
+def audio_drift(nx, ny, t, w, h, bass, mid, treble):
+    """Tides — bass directly shifts tide position."""
+    offset = bass * 3 + t
+    return int(math.sin(nx*5 + ny*2 + offset) * 127 + 127)
+
+def audio_wave3(nx, ny, t, w, h, bass, mid, treble):
+    """Mirage — bass directly controls wave distortion amount."""
+    distort = bass * 3  # bass sets distortion magnitude
+    return int(math.sin(nx*10 + math.sin(ny*10 + t) * distort) * 127 + 127)
+
+
+# ─── Pattern Registry ──────────────────────────────────────────────────────
+# Each pattern has: name, default fn (auto-movement), audio_fn (sound-driven)
+# Backward compat: ANIMATIONS is an alias for PATTERNS
+
+PATTERNS = [
+    {"name": "Interference", "fn": anim_wave,     "audio_fn": audio_wave},
+    {"name": "Plasma",       "fn": anim_plasma,    "audio_fn": audio_plasma},
+    {"name": "Scanner",      "fn": anim_scanner,   "audio_fn": audio_scanner},
+    {"name": "Pixels",       "fn": anim_noise,     "audio_fn": audio_noise},
+    {"name": "Orbit",        "fn": anim_circle,    "audio_fn": audio_circle},
+    {"name": "Matrix",       "fn": anim_digital,   "audio_fn": audio_digital},
+    {"name": "Blizzard",     "fn": anim_snow,      "audio_fn": audio_snow},
+    {"name": "Nebula",       "fn": anim_cloud,     "audio_fn": audio_cloud},
+    {"name": "Lava",         "fn": anim_blob,      "audio_fn": audio_blob},
+    {"name": "Sparkle",      "fn": anim_sparkle,   "audio_fn": audio_sparkle},
+    {"name": "Tunnel",       "fn": anim_tunnel,    "audio_fn": audio_tunnel},
+    {"name": "Bonfire",      "fn": anim_fire,      "audio_fn": audio_fire},
+    {"name": "Vortex",       "fn": anim_spiral,    "audio_fn": audio_spiral},
+    {"name": "Stripes",      "fn": anim_bands,     "audio_fn": audio_bands},
+    {"name": "Twister",      "fn": anim_twist,     "audio_fn": audio_twist},
+    {"name": "Bouncer",      "fn": anim_bounce,    "audio_fn": audio_bounce},
+    {"name": "Falling",      "fn": anim_gravity,   "audio_fn": audio_gravity},
+    {"name": "Prism",        "fn": anim_tint,      "audio_fn": audio_tint},
+    {"name": "Flow",         "fn": anim_flux,      "audio_fn": audio_flux},
+    {"name": "Diamond",      "fn": anim_shape,     "audio_fn": audio_shape},
+    {"name": "Ripple",       "fn": anim_pond,      "audio_fn": audio_pond},
+    {"name": "Echo",         "fn": anim_trail,     "audio_fn": audio_trail},
+    {"name": "Ghost",        "fn": anim_fade,      "audio_fn": audio_fade},
+    {"name": "DNA",          "fn": anim_helix,     "audio_fn": audio_helix},
+    {"name": "Beams",        "fn": anim_laser,     "audio_fn": audio_laser},
+    {"name": "Comet",        "fn": anim_streak,    "audio_fn": audio_streak},
+    {"name": "Gear",         "fn": anim_rotary,    "audio_fn": audio_rotary},
+    {"name": "ZigZag",       "fn": anim_ang,       "audio_fn": audio_ang},
+    {"name": "Wormhole",     "fn": anim_zoom,      "audio_fn": audio_zoom},
+    {"name": "Nebula2",      "fn": anim_flow,      "audio_fn": audio_flow},
+    {"name": "Waves",        "fn": anim_ocean,     "audio_fn": audio_ocean},
+    {"name": "Focus",        "fn": anim_lens,      "audio_fn": audio_lens},
+    {"name": "Eruption",     "fn": anim_lavaflow,  "audio_fn": audio_lavaflow},
+    {"name": "Prism2",       "fn": anim_rainbow,   "audio_fn": audio_rainbow},
+    {"name": "Echoes",       "fn": anim_ghosting,  "audio_fn": audio_ghosting},
+    {"name": "Radiate",      "fn": anim_sun,       "audio_fn": audio_sun},
+    {"name": "Tides",        "fn": anim_drift,     "audio_fn": audio_drift},
+    {"name": "Mirage",       "fn": anim_wave3,     "audio_fn": audio_wave3},
 ]
+
+# Backward compatibility alias
+ANIMATIONS = PATTERNS
