@@ -32,6 +32,10 @@ let webcamSampleCanvas = null;
 let webcamSampleCtx = null;
 let webcamIntervalId = null;
 
+// Model type
+let modelType = 'grid';
+let strandInfo = [];  // strand paths + pixel counts for bull's head rendering
+
 // ─── Canvas References ──────────────────────────────────────────────────────
 
 const singleCanvas = document.getElementById('matrix-canvas');
@@ -42,6 +46,16 @@ const leftCanvas = document.getElementById('left-canvas');
 const leftCtx = leftCanvas.getContext('2d');
 const rightCanvas = document.getElementById('right-canvas');
 const rightCtx = rightCanvas.getContext('2d');
+const bullheadCanvas = document.getElementById('bullhead-canvas');
+const bullheadCtx = bullheadCanvas.getContext('2d');
+const completeBullheadCanvas = document.getElementById('complete-bullhead-canvas');
+const completeBullheadCtx = completeBullheadCanvas.getContext('2d');
+const completeFrontCanvas = document.getElementById('complete-front-canvas');
+const completeFrontCtx = completeFrontCanvas.getContext('2d');
+const completeLeftCanvas = document.getElementById('complete-left-canvas');
+const completeLeftCtx = completeLeftCanvas.getContext('2d');
+const completeRightCanvas = document.getElementById('complete-right-canvas');
+const completeRightCtx = completeRightCanvas.getContext('2d');
 
 // ─── Responsive Sizing ─────────────────────────────────────────────────────
 
@@ -119,49 +133,197 @@ function renderToCanvas(ctx, canvas, frameData, cols, rows, colOffset, params) {
 function updateLayout() {
     const singleView = document.getElementById('single-view');
     const ushapeView = document.getElementById('ushape-view');
-    const isMulti = panels.length > 1;
+    const bullheadView = document.getElementById('bullhead-view');
+    const completeView = document.getElementById('complete-view');
 
-    if (isMulti) {
-        singleView.classList.add('hidden');
+    // Hide all views
+    singleView.classList.add('hidden');
+    ushapeView.classList.add('hidden');
+    bullheadView.classList.add('hidden');
+    completeView.classList.add('hidden');
+
+    if (modelType === 'strands') {
+        bullheadView.classList.remove('hidden');
+    } else if (modelType === 'composite') {
+        completeView.classList.remove('hidden');
+    } else if (panels.length > 1) {
         ushapeView.classList.remove('hidden');
     } else {
         singleView.classList.remove('hidden');
-        ushapeView.classList.add('hidden');
+    }
+
+    // Show symmetry toggle only for strand/composite models
+    const symRow = document.getElementById('symmetry-row');
+    if (modelType === 'strands' || modelType === 'composite') {
+        symRow.style.display = '';
+    } else {
+        symRow.style.display = 'none';
     }
 }
 
 function renderFrame(frameData) {
-    if (panels.length <= 1) {
+    if (modelType === 'strands') {
+        renderStrandsToCanvas(bullheadCtx, bullheadCanvas, frameData, strandInfo);
+    } else if (modelType === 'composite') {
+        // Render panels to complete-view canvases
+        if (panels.length >= 5) {
+            renderPanelsToCanvases(frameData, completeFrontCtx, completeFrontCanvas,
+                completeLeftCtx, completeLeftCanvas, completeRightCtx, completeRightCanvas);
+        }
+        // Render strands to complete-bullhead canvas
+        // Strand pixels come after the grid pixels in the frame data
+        const gridPixels = panels.reduce((sum, p) => sum + p.rows * p.cols, 0);
+        const strandData = frameData.slice(gridPixels * 3);
+
+        // Size bull head relative to front panel: bull = 84" (7ft), front panel = 24"
+        // So bull head height = 3.5× front panel height
+        // Front panel height in pixels = rows * spacing
+        const containerW = getContainerWidth();
+        const sideMaxW = (containerW - 40) * 0.45;
+        const sideParams = calcLedParams(220, vcHeight, sideMaxW);
+        const frontPanelH = vcHeight * sideParams.spacing;
+        const bullTargetH = frontPanelH * 3.5;
+
+        // Content aspect ratio
+        const PAD = 0.02;
+        const RANGE_X = (0.96 + PAD) - (0.04 - PAD);
+        const RANGE_Y = (0.78 + PAD) - (0.22 - PAD);
+        const bullCanvasW = Math.round(bullTargetH * (RANGE_X / RANGE_Y));
+
+        // Match dot size to panel LED size
+        const bullDot = sideParams.radius * 0.4;
+        const bullGlow = sideParams.radius * 0.6;
+
+        renderStrandsToCanvas(completeBullheadCtx, completeBullheadCanvas, strandData, strandInfo,
+            { canvasW: bullCanvasW, dotSize: bullDot, glowSize: bullGlow });
+    } else if (panels.length > 1) {
+        renderPanelsToCanvases(frameData, frontCtx, frontCanvas,
+            leftCtx, leftCanvas, rightCtx, rightCanvas);
+    } else {
         const cols = vcWidth;
         const rows = vcHeight;
         const containerW = getContainerWidth() - 42;
         const params = calcLedParams(cols, rows, containerW);
         renderToCanvas(singleCtx, singleCanvas, frameData, cols, rows, 0, params);
-    } else {
-        const lsFront = panels[0];
-        const lsRear = panels[1];
-        const front = panels[2];
-        const rsRear = panels[3];
-        const rsFront = panels[4];
-
-        const leftCols = lsFront.cols + lsRear.cols;
-        const rightCols = rsRear.cols + rsFront.cols;
-        const frontCols = front.cols;
-        const rows = vcHeight;
-
-        // Responsive: each side panel gets ~45% of container, front gets ~30%
-        const containerW = getContainerWidth();
-        const sideMaxW = (containerW - 40) * 0.45;  // 40 for gap + borders
-        const frontMaxW = containerW * 0.35;
-
-        const leftParams = calcLedParams(leftCols, rows, sideMaxW);
-        const rightParams = calcLedParams(rightCols, rows, sideMaxW);
-        const frontParams = calcLedParams(frontCols, rows, frontMaxW);
-
-        renderToCanvas(frontCtx, frontCanvas, frameData, frontCols, rows, front.col_offset, frontParams);
-        renderToCanvas(leftCtx, leftCanvas, frameData, leftCols, rows, lsFront.col_offset, leftParams);
-        renderToCanvas(rightCtx, rightCanvas, frameData, rightCols, rows, rsRear.col_offset, rightParams);
     }
+}
+
+function renderPanelsToCanvases(frameData, fCtx, fCanvas, lCtx, lCanvas, rCtx, rCanvas) {
+    const lsFront = panels[0];
+    const lsRear = panels[1];
+    const front = panels[2];
+    const rsRear = panels[3];
+    const rsFront = panels[4];
+
+    const leftCols = lsFront.cols + lsRear.cols;
+    const rightCols = rsRear.cols + rsFront.cols;
+    const frontCols = front.cols;
+    const rows = vcHeight;
+
+    const containerW = getContainerWidth();
+    const sideMaxW = (containerW - 40) * 0.45;
+
+    // Use side spacing for ALL panels so they have identical row height
+    const leftParams = calcLedParams(leftCols, rows, sideMaxW);
+    const rightParams = calcLedParams(rightCols, rows, sideMaxW);
+    const frontParams = { ...leftParams };  // same spacing = same height
+
+    renderToCanvas(fCtx, fCanvas, frameData, frontCols, rows, front.col_offset, frontParams);
+    renderToCanvas(lCtx, lCanvas, frameData, leftCols, rows, lsFront.col_offset, leftParams);
+    renderToCanvas(rCtx, rCanvas, frameData, rightCols, rows, rsRear.col_offset, rightParams);
+}
+
+function renderStrandsToCanvas(ctx, canvas, pixelData, strands, opts) {
+    // Draw strands as colored dots along straight-line polyline paths.
+    // Crop to actual content bounds (SVG content spans y=0.22 to y=0.78, x=0.04 to 0.96)
+    const PAD = 0.02;
+    const MIN_X = 0.04 - PAD, MAX_X = 0.96 + PAD;
+    const MIN_Y = 0.22 - PAD, MAX_Y = 0.78 + PAD;
+    const RANGE_X = MAX_X - MIN_X;
+    const RANGE_Y = MAX_Y - MIN_Y;
+
+    // opts.canvasW overrides default width; opts.dotSize/glowSize override dot sizes
+    const canvasW = (opts && opts.canvasW) || 600;
+    const canvasH = Math.round(canvasW * (RANGE_Y / RANGE_X));
+    canvas.width = canvasW;
+    canvas.height = canvasH;
+
+    ctx.fillStyle = '#0a0a0f';
+    ctx.fillRect(0, 0, canvasW, canvasH);
+
+    let pixelIdx = 0;
+    const dotSize = (opts && opts.dotSize) || 1.5;
+    const glowSize = (opts && opts.glowSize) || 4;
+
+    // Remap normalized coord to canvas pixel
+    const toX = (nx) => ((nx - MIN_X) / RANGE_X) * canvasW;
+    const toY = (ny) => ((ny - MIN_Y) / RANGE_Y) * canvasH;
+
+    for (const strand of strands) {
+        const path = strand.path || [];
+        const pc = strand.pixel_count || 0;
+        if (path.length < 2) { pixelIdx += pc; continue; }
+
+        // Compute cumulative distance along polyline segments (in canvas pixels)
+        const segLengths = [];
+        let totalLen = 0;
+        for (let i = 1; i < path.length; i++) {
+            const dx = toX(path[i][0]) - toX(path[i-1][0]);
+            const dy = toY(path[i][1]) - toY(path[i-1][1]);
+            const len = Math.sqrt(dx*dx + dy*dy);
+            segLengths.push(len);
+            totalLen += len;
+        }
+
+        // Place each pixel at evenly-spaced distance along the polyline
+        for (let pi = 0; pi < pc; pi++) {
+            const targetDist = (pi / Math.max(pc - 1, 1)) * totalLen;
+
+            // Walk segments to find position
+            let walked = 0;
+            let px = toX(path[0][0]);
+            let py = toY(path[0][1]);
+
+            for (let si = 0; si < segLengths.length; si++) {
+                const segLen = segLengths[si];
+                if (walked + segLen >= targetDist || si === segLengths.length - 1) {
+                    const remaining = targetDist - walked;
+                    const frac = segLen > 0 ? remaining / segLen : 0;
+                    const nx = path[si][0] + (path[si+1][0] - path[si][0]) * frac;
+                    const ny = path[si][1] + (path[si+1][1] - path[si][1]) * frac;
+                    px = toX(nx);
+                    py = toY(ny);
+                    break;
+                }
+                walked += segLen;
+            }
+
+            // Get pixel color
+            const dataIdx = pixelIdx * 3;
+            const r = pixelData[dataIdx] || 0;
+            const g = pixelData[dataIdx + 1] || 0;
+            const b = pixelData[dataIdx + 2] || 0;
+
+            // Draw glow
+            if (r > 10 || g > 10 || b > 10) {
+                ctx.globalAlpha = 0.3;
+                ctx.fillStyle = `rgb(${r},${g},${b})`;
+                ctx.beginPath();
+                ctx.arc(px, py, glowSize, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Draw dot
+            ctx.globalAlpha = 1.0;
+            ctx.fillStyle = `rgb(${r},${g},${b})`;
+            ctx.beginPath();
+            ctx.arc(px, py, dotSize, 0, Math.PI * 2);
+            ctx.fill();
+
+            pixelIdx++;
+        }
+    }
+    ctx.globalAlpha = 1.0;
 }
 
 // Debounced resize handler
@@ -206,6 +368,8 @@ function connect() {
                 vcWidth = state.width || 24;
                 vcHeight = state.height || 12;
                 panels = state.panels || [];
+                modelType = state.model_type || 'grid';
+                strandInfo = state.strands || [];
                 updateLayout();
                 updateUI();
             } else if (msg.type === 'presets') {
@@ -291,6 +455,13 @@ function updateUI() {
 
     // FX
     updateFXChips();
+
+    // Symmetry toggle sync
+    const symOn = state.symmetry !== false; // default true
+    const symOnEl = document.getElementById('sym-on-btn');
+    const symOffEl = document.getElementById('sym-off-btn');
+    if (symOnEl) symOnEl.classList.toggle('active', symOn);
+    if (symOffEl) symOffEl.classList.toggle('active', !symOn);
 
     // Audio / animation mode
     updateAnimModeUI();
@@ -744,6 +915,16 @@ document.getElementById('fx-intensity-slider').addEventListener('input', (e) => 
 // Blackout
 document.getElementById('blackout-btn').addEventListener('click', () => {
     send({ cmd: 'blackout', on: !state.blackout });
+});
+
+// Symmetry toggle
+const symOnBtn = document.getElementById('sym-on-btn');
+const symOffBtn = document.getElementById('sym-off-btn');
+if (symOnBtn) symOnBtn.addEventListener('click', () => {
+    send({ cmd: 'set_symmetry', on: true });
+});
+if (symOffBtn) symOffBtn.addEventListener('click', () => {
+    send({ cmd: 'set_symmetry', on: false });
 });
 
 // Diagnostics select

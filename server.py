@@ -136,6 +136,8 @@ async def websocket_endpoint(ws: WebSocket):
                 engine.set_fx(data["key"])
             elif cmd == "set_fx_intensity":
                 engine.set_fx_intensity(data["value"])
+            elif cmd == "set_symmetry":
+                engine.set_symmetry(data.get("on", True))
             elif cmd == "set_webcam":
                 engine.set_webcam(data.get("on", False))
             elif cmd == "set_audio_mode":

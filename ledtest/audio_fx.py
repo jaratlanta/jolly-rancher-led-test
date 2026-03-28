@@ -34,11 +34,12 @@ class AudioEngine:
         self.mid_smooth = 0.0
         self.treble_smooth = 0.0
 
-        # Peak detection
+        # Beat detection
         self._bass_prev = 0.0
         self._bass_peak = 0.0
+        self._beat_cooldown = 0.0  # prevents double-triggering
 
-        # Accumulated audio-driven time (only advances with audio energy)
+        # Accumulated audio-driven time — steps forward on each beat
         self.audio_time = 0.0
 
     def reset(self):
@@ -46,6 +47,7 @@ class AudioEngine:
         self.bass = self.mid = self.treble = 0.0
         self.bass_smooth = self.mid_smooth = self.treble_smooth = 0.0
         self._bass_prev = self._bass_peak = 0.0
+        self._beat_cooldown = 0.0
         self.audio_time = 0.0
 
     def set_mode(self, mode):
@@ -79,18 +81,20 @@ class AudioEngine:
                 alpha = min(1.0, dt * 5)   # slower decay
             setattr(self, attr, current + (raw - current) * alpha)
 
-        # Peak detection for bass
+        # Beat detection: detect bass transients (rising edge)
         bass_delta = self.bass - self._bass_prev
         self._bass_prev = self.bass
-        if bass_delta > 0.1 and self.bass > 0.25:
-            self._bass_peak = min(1.0, self._bass_peak + bass_delta * 3)
+        self._beat_cooldown = max(0, self._beat_cooldown - dt)
+
+        if bass_delta > 0.08 and self.bass > 0.15 and self._beat_cooldown <= 0:
+            # Beat detected — step audio_time forward by a fixed amount
+            # Larger beats = slightly larger steps
+            step = 0.3 + bass_delta * 0.5
+            self.audio_time += step
+            self._beat_cooldown = 0.12  # minimum time between beats (~8 beats/sec max)
+            self._bass_peak = min(1.0, bass_delta * 3)
         else:
             self._bass_peak *= 0.85
-
-        # Advance audio time — only moves when there's audio energy
-        # Much gentler accumulation — bass is primary driver
-        energy = self.bass_smooth * 0.7 + self.mid_smooth * 0.2 + self.treble_smooth * 0.1
-        self.audio_time += energy * dt * 1.5
 
     def is_active(self):
         """Return True if audio mode is engaged and enabled."""

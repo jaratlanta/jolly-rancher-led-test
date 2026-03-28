@@ -27,7 +27,7 @@
         <canvas id="matrix-canvas"></canvas>
     </div>
 
-    <!-- U-Shape Preview (Jolly Rancher mode) -->
+    <!-- U-Shape Preview (JR Panels mode) -->
     <div class="ushape-container hidden" id="ushape-view">
         <div class="ushape-top">
             <div class="panel-wrap">
@@ -44,6 +44,38 @@
             <div class="panel-wrap">
                 <div class="panel-label">Right Side</div>
                 <canvas id="right-canvas"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bull's Head Preview (strand mode) -->
+    <div class="bullhead-container hidden" id="bullhead-view">
+        <canvas id="bullhead-canvas"></canvas>
+    </div>
+
+    <!-- JR Complete Preview (panels + bull's head) -->
+    <div class="complete-container hidden" id="complete-view">
+        <div class="complete-bullhead">
+            <div class="panel-label">Bull's Head</div>
+            <canvas id="complete-bullhead-canvas"></canvas>
+        </div>
+        <div class="complete-panels">
+            <div class="ushape-top">
+                <div class="panel-wrap">
+                    <div class="panel-label">Front</div>
+                    <canvas id="complete-front-canvas"></canvas>
+                </div>
+            </div>
+            <div class="ushape-bottom">
+                <div class="panel-wrap">
+                    <div class="panel-label">Left Side</div>
+                    <canvas id="complete-left-canvas"></canvas>
+                </div>
+                <div class="ushape-gap"></div>
+                <div class="panel-wrap">
+                    <div class="panel-label">Right Side</div>
+                    <canvas id="complete-right-canvas"></canvas>
+                </div>
             </div>
         </div>
     </div>
@@ -151,6 +183,14 @@
                 <span class="slider-label">FX Amount</span>
                 <input type="range" id="fx-intensity-slider" min="0" max="100" value="50">
                 <span class="slider-value" id="fx-intensity-value">50%</span>
+            </div>
+        </div>
+
+        <!-- Symmetry Toggle (Bull's Head only) -->
+        <div class="control-row" id="symmetry-row" style="display: none;">
+            <div class="source-toggle">
+                <button class="source-btn active" id="sym-on-btn">SYMMETRICAL</button>
+                <button class="source-btn" id="sym-off-btn">NON-SYMMETRICAL</button>
             </div>
         </div>
 

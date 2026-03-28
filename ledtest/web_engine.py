@@ -45,6 +45,9 @@ class FrameEngine:
         self.diagnostic_key = None
         self.diagnostic_gen = None
 
+        # Symmetry mode for bull's head (left mirrors right)
+        self.symmetry = True
+
         # Webcam mode
         self.webcam_mode = False
         self._webcam_brightness = None
@@ -65,18 +68,29 @@ class FrameEngine:
         """Set up mapping, sACN output, and FX for the current model."""
         model = get_model(self.model_key)
         self.model_info = model
+        self.model_type = model.get("type", "grid")
 
         self.width = model["total_cols"]
         self.height = model["rows"]
         self.num_pixels = model["total_pixels"]
 
-        if len(model["panels"]) == 1 and not model["panels"][0].get("flip_h"):
-            p = model["panels"][0]
-            self.mapping = build_mapping(p["cols"], p["rows"], config.SERPENTINE)
+        # Grid mapping (for grid and composite models that have panels)
+        if model["panels"]:
+            if len(model["panels"]) == 1 and not model["panels"][0].get("flip_h"):
+                p = model["panels"][0]
+                self.mapping = build_mapping(p["cols"], p["rows"], config.SERPENTINE)
+            else:
+                self.mapping = build_multi_panel_mapping(model, config.SERPENTINE)
+            self._build_panel_coords()
         else:
-            self.mapping = build_multi_panel_mapping(model, config.SERPENTINE)
+            self.mapping = None
 
-        self._build_panel_coords()
+        # Strand mapping (for strand and composite models)
+        self._strand_coords = None
+        strands = model.get("strands", [])
+        if strands:
+            self._build_strand_coords(strands)
+
         self.fx = FXProcessor(self.width, self.height)
         # Preserve audio state across model switches
         if not hasattr(self, 'audio'):
@@ -167,6 +181,10 @@ class FrameEngine:
         if on:
             self.sacn.send_black()
 
+    def set_symmetry(self, on):
+        """Toggle symmetry mode for bull's head."""
+        self.symmetry = bool(on)
+
     def set_fx(self, fx_key):
         self.fx.set_fx(fx_key if fx_key != "none" else None)
 
@@ -235,10 +253,16 @@ class FrameEngine:
         return {
             "model_key": self.model_key,
             "model_name": self.model_info["name"],
+            "model_type": self.model_type,
             "panels": [
                 {"name": p["name"], "rows": p["rows"], "cols": p["cols"],
                  "col_offset": p["col_offset"], "pixel_offset": p["pixel_offset"]}
                 for p in self.model_info["panels"]
+            ],
+            "strands": [
+                {"name": s["name"], "pixel_count": s["pixel_count"],
+                 "pixel_offset": s["pixel_offset"], "path": s["path"]}
+                for s in self.model_info.get("strands", [])
             ],
             # Pattern state (with backward-compat animation_ fields)
             "pattern_idx": self.pattern_idx,
@@ -262,6 +286,7 @@ class FrameEngine:
             "controller_ip": config.CONTROLLER_IP,
             "fx": self.fx.active_fx or "none",
             "fx_intensity": self.fx.intensity,
+            "symmetry": self.symmetry,
             "webcam_mode": self.webcam_mode,
             "audio_mode": "audio" if self.audio.audio_on else "none",
             "audio_sensitivity": self.audio.sensitivity,
@@ -304,35 +329,61 @@ class FrameEngine:
                     self._pw_map[y][gx] = surf_total_cols
                     self._ph_map[y][gx] = surf_rows
 
+    # ─── Strand coordinates ───────────────────────────────────────────────
+
+    def _build_strand_coords(self, strands):
+        """Precompute normalized (nx, ny) for each pixel on each strand.
+
+        nx = position along strand (0..1)
+        ny = strand index normalized (0..1)
+        """
+        num_strands = len(strands)
+        coords = []  # list of (nx, ny, strand_pixel_count, num_strands)
+        for si, strand in enumerate(strands):
+            ny = si / max(num_strands - 1, 1)
+            pc = strand["pixel_count"]
+            for pi in range(pc):
+                nx = pi / max(pc - 1, 1)
+                coords.append((nx, ny, pc, num_strands))
+        self._strand_coords = coords
+
     # ─── Frame generation ──────────────────────────────────────────────────
 
     def _generate_animation_frame(self):
         """Generate a frame from the current pattern + palette.
 
-        When audio is active, uses the pattern's audio_fn with live
-        bass/mid/treble values. Otherwise uses the default fn.
+        Handles grid models, strand models, and composites.
+        Returns pixel data as flat RGB array for strand/composite models,
+        or 2D grid for grid models.
         """
         t = (time.monotonic() - self._start_time) * self.speed
         pattern = PATTERNS[self.pattern_idx]
-        frame = np.zeros((self.height, self.width, 3), dtype=np.uint8)
-
         use_audio = self.audio.is_active() and "audio_fn" in pattern
+
+        if self.model_type == "strands":
+            return self._generate_strand_frame(t, pattern, use_audio)
+        elif self.model_type == "composite":
+            return self._generate_composite_frame(t, pattern, use_audio)
+        else:
+            return self._generate_grid_frame(t, pattern, use_audio)
+
+    def _generate_grid_frame(self, t, pattern, use_audio):
+        """Generate frame for grid (panel) models."""
+        frame = np.zeros((self.height, self.width, 3), dtype=np.uint8)
 
         if use_audio:
             audio_fn = pattern["audio_fn"]
-            bass = self.audio.bass_smooth
-            mid = self.audio.mid_smooth
-            treble = self.audio.treble_smooth
-            at = self.audio.audio_time  # accumulated audio-driven time
-
+            bass, mid, treble = self.audio.bass_smooth, self.audio.mid_smooth, self.audio.treble_smooth
+            at = self.audio.audio_time
             for y in range(self.height):
                 for x in range(self.width):
                     nx = float(self._nx_map[y][x])
                     ny = float(self._ny_map[y][x])
-                    pw = self._pw_map[y][x]
-                    ph = self._ph_map[y][x]
-                    val = audio_fn(nx, ny, at, pw, ph, bass, mid, treble)
-                    val = max(0, min(255, int(val)))
+                    pw, ph = self._pw_map[y][x], self._ph_map[y][x]
+                    try:
+                        val = max(0, min(255, int(audio_fn(nx, ny, at, pw, ph, bass, mid, treble))))
+                    except Exception:
+                        val = 0
                     r, g, b = palette_color(val, self.palette_idx)
                     frame[y][x] = [r, g, b]
         else:
@@ -341,12 +392,121 @@ class FrameEngine:
                 for x in range(self.width):
                     nx = float(self._nx_map[y][x])
                     ny = float(self._ny_map[y][x])
-                    pw = self._pw_map[y][x]
-                    ph = self._ph_map[y][x]
-                    val = anim_fn(nx, ny, t, pw, ph)
-                    val = max(0, min(255, int(val)))
+                    pw, ph = self._pw_map[y][x], self._ph_map[y][x]
+                    try:
+                        val = max(0, min(255, int(anim_fn(nx, ny, t, pw, ph))))
+                    except Exception:
+                        val = 0
                     r, g, b = palette_color(val, self.palette_idx)
                     frame[y][x] = [r, g, b]
+
+        return frame
+
+    def _generate_strand_frame(self, t, pattern, use_audio):
+        """Generate frame for strand models. Returns 1D pixel array.
+
+        In symmetry mode, left-side strands are rendered normally, then
+        right-side strands mirror the corresponding left-side strand (reversed).
+        """
+        if not self._strand_coords:
+            return np.zeros((1, 1, 3), dtype=np.uint8)
+
+        num_pixels = len(self._strand_coords)
+        frame = np.zeros((1, num_pixels, 3), dtype=np.uint8)
+
+        strands = self.model_info.get("strands", [])
+
+        # Build symmetry pairs by name: right strand mirrors left strand
+        # reverse=True means the strands traverse in opposite directions
+        # (Center strands: CL goes bottom→up→left, CR goes right→center→down)
+        sym_name_map = {
+            "Right Inner":  ("Left Inner",  False),
+            "Right Outer":  ("Left Outer",  False),
+            "Lower Right":  ("Lower Left",  False),
+            "Center Right": ("Center Left", True),  # opposite traversal
+        }
+        sym_pairs = {}  # right_idx → (left_idx, reverse)
+        if self.symmetry:
+            name_to_idx = {s["name"]: i for i, s in enumerate(strands)}
+            for right_name, (left_name, reverse) in sym_name_map.items():
+                ri = name_to_idx.get(right_name)
+                li = name_to_idx.get(left_name)
+                if ri is not None and li is not None:
+                    sym_pairs[ri] = (li, reverse)
+
+        if use_audio:
+            fn = pattern["audio_fn"]
+            bass, mid, treble = self.audio.bass_smooth, self.audio.mid_smooth, self.audio.treble_smooth
+            at = self.audio.audio_time
+        else:
+            fn = pattern["fn"]
+
+        # Render each strand
+        pixel_offset = 0
+        strand_pixels = {}  # cache per-strand pixel data for symmetry
+
+        for si, strand in enumerate(strands):
+            pc = strand["pixel_count"]
+
+            if self.symmetry and si in sym_pairs:
+                src_si, reverse = sym_pairs[si]
+                if src_si in strand_pixels:
+                    src = strand_pixels[src_si]
+                    src_pc = len(src)
+                    for pi in range(pc):
+                        frac = pi / max(pc - 1, 1)
+                        if reverse:
+                            frac = 1.0 - frac
+                        src_pi = min(src_pc - 1, int(frac * (src_pc - 1)))
+                        frame[0][pixel_offset + pi] = src[src_pi]
+                    pixel_offset += pc
+                    continue
+
+            # Normal render
+            pixels = []
+            for pi in range(pc):
+                idx = pixel_offset + pi
+                if idx < len(self._strand_coords):
+                    nx, ny, pw, ph = self._strand_coords[idx]
+                    try:
+                        if use_audio:
+                            val = max(0, min(255, int(fn(nx, ny, at, pw, ph, bass, mid, treble))))
+                        else:
+                            val = max(0, min(255, int(fn(nx, ny, t, pw, ph))))
+                    except Exception:
+                        val = 0
+                    r, g, b = palette_color(val, self.palette_idx)
+                    frame[0][pixel_offset + pi] = [r, g, b]
+                    pixels.append([r, g, b])
+
+            strand_pixels[si] = pixels
+            pixel_offset += pc
+
+        return frame
+
+    def _generate_composite_frame(self, t, pattern, use_audio):
+        """Generate frame for composite models (grid + strands combined).
+
+        Grid pixels are rendered as a 2D frame, strand pixels are appended
+        as a flat row at the bottom. The frontend knows how to split them.
+        Reuses _generate_strand_frame for symmetry support.
+        """
+        # Generate grid portion
+        grid_frame = self._generate_grid_frame(t, pattern, use_audio)
+
+        # Generate strand portion using the same method as Bull's Head
+        # (includes symmetry logic)
+        if self._strand_coords:
+            strand_frame = self._generate_strand_frame(t, pattern, use_audio)
+            # strand_frame is (1, num_strand_pixels, 3) — pack into grid width
+            num_strand_px = strand_frame.shape[1]
+            strand_row = np.zeros((1, self.width, 3), dtype=np.uint8)
+            copy_count = min(num_strand_px, self.width)
+            strand_row[0, :copy_count] = strand_frame[0, :copy_count]
+
+            frame = np.vstack([grid_frame, strand_row])
+        else:
+            frame = grid_frame
 
         return frame
 
@@ -371,28 +531,50 @@ class FrameEngine:
             else:
                 frame_rgb = self._generate_animation_frame()
 
-            # Crossfade
+            # Crossfade (shape must match; cancel if dimensions changed)
             if self._crossfade_active and self._crossfade_from_frame is not None:
-                elapsed_cf = time.monotonic() - self._crossfade_start
-                alpha = min(1.0, elapsed_cf / self._crossfade_duration)
-                if alpha < 1.0:
-                    old = self._crossfade_from_frame.astype(np.float32)
-                    new = frame_rgb.astype(np.float32)
-                    frame_rgb = (old * (1.0 - alpha) + new * alpha).astype(np.uint8)
-                else:
+                if self._crossfade_from_frame.shape != frame_rgb.shape:
                     self._crossfade_active = False
                     self._crossfade_from_frame = None
+                else:
+                    elapsed_cf = time.monotonic() - self._crossfade_start
+                    alpha = min(1.0, elapsed_cf / self._crossfade_duration)
+                    if alpha < 1.0:
+                        old = self._crossfade_from_frame.astype(np.float32)
+                        new = frame_rgb.astype(np.float32)
+                        frame_rgb = (old * (1.0 - alpha) + new * alpha).astype(np.uint8)
+                    else:
+                        self._crossfade_active = False
+                        self._crossfade_from_frame = None
 
-            # Post-processing FX
-            frame_rgb = self.fx.process(frame_rgb, frame_interval)
+            # Post-processing FX — reinit if frame shape changed
+            fh, fw = frame_rgb.shape[0], frame_rgb.shape[1]
+            if self.fx.width != fw or self.fx.height != fh:
+                active = self.fx.active_fx
+                intensity = self.fx.intensity
+                self.fx = FXProcessor(fw, fh)
+                self.fx.active_fx = active
+                self.fx.intensity = intensity
+            try:
+                frame_rgb = self.fx.process(frame_rgb, frame_interval)
+            except Exception:
+                pass  # skip FX this frame rather than crash
 
             # Advance audio state
             self.audio.tick(frame_interval)
 
+            # Apply brightness cap to frame (affects both preview and hardware)
+            if self.brightness < 255:
+                frame_rgb = np.clip(frame_rgb, 0, self.brightness).astype(np.uint8)
+
             self.current_frame_rgb = frame_rgb
 
-            # Send to Falcon
-            pixels = frame_to_pixels(frame_rgb, self.mapping)
+            # Send to Falcon — grid uses mapping, strands are linear
+            if self.mapping is not None:
+                pixels = frame_to_pixels(frame_rgb, self.mapping)
+            else:
+                # Strand model: pixels are already in linear order
+                pixels = frame_rgb.reshape(-1, 3)
             self.sacn.send_frame(pixels)
 
             # Stream to WebSocket clients
@@ -405,8 +587,11 @@ class FrameEngine:
             if sleep_time > 0:
                 time.sleep(sleep_time)
 
-          except Exception:
-            time.sleep(0.5)
+          except Exception as e:
+            import traceback, sys
+            print(f"\n⚠️  Frame loop error: {e}", file=sys.stderr)
+            traceback.print_exc()
+            time.sleep(0.033)  # skip one frame, don't freeze
 
     def _broadcast_frame(self, frame_bytes):
         with self.ws_lock:
