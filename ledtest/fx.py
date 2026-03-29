@@ -238,15 +238,19 @@ def fx_ripple(engine, frame, dt):
     # Sample from displaced positions
     result = f[src_y, src_x]
 
-    # Brighten wavefront edges using the pixel's OWN color (preserves palette).
-    # Instead of adding flat white, scale the existing color brighter.
+    # Saturation-preserving brightness modulation:
+    # Scale brightness up/down, then re-normalize to prevent clipping desaturation
     edge_strength = np.sqrt(grad_x**2 + grad_y**2)
-    edge_mult = 1.0 + np.clip(edge_strength * 8 * strength, 0, 2.5)
-    result *= edge_mult[:, :, np.newaxis]
+    edge_boost = np.clip(edge_strength * 8 * strength, 0, 2.0)
+    trough_dim = np.clip(-ripple * 4 * strength, 0, 0.5)
 
-    # Darken wave troughs by scaling down (preserves hue, just dims)
-    trough_mult = 1.0 - np.clip(-ripple * 4 * strength, 0, 0.5)
-    result *= trough_mult[:, :, np.newaxis]
+    brightness_mod = (1.0 + edge_boost - trough_dim)[:, :, np.newaxis]
+    result *= brightness_mod
+
+    # Re-normalize: if any channel exceeds 255, scale whole pixel down
+    max_ch = result.max(axis=2, keepdims=True)
+    overflow = np.where(max_ch > 255, 255.0 / np.maximum(max_ch, 1), 1.0)
+    result *= overflow
 
     return np.clip(result, 0, 255).astype(np.uint8)
 
@@ -647,14 +651,23 @@ def _ripple_core(engine, frame, dt, damping, edge_mult_scale, trough_scale,
     src_y = np.clip((yy + grad_y * disp).astype(int), 0, h - 1)
     result = f[src_y, src_x]
 
-    # Color-preserving edge brightening
+    # Saturation-preserving brightness modulation:
+    # Instead of multiplying RGB (which desaturates on clip),
+    # scale toward white for brightening and toward black for darkening,
+    # then re-normalize so the max channel never exceeds 255.
     edge_strength = np.sqrt(grad_x**2 + grad_y**2)
-    edge_m = 1.0 + np.clip(edge_strength * edge_mult_scale * strength, 0, 2.5)
-    result *= edge_m[:, :, np.newaxis]
+    edge_boost = np.clip(edge_strength * edge_mult_scale * strength, 0, 2.0)
+    trough_dim = np.clip(-ripple * trough_scale * strength, 0, 0.5)
 
-    # Color-preserving trough darkening
-    trough_m = 1.0 - np.clip(-ripple * trough_scale * strength, 0, 0.5)
-    result *= trough_m[:, :, np.newaxis]
+    # Combined brightness factor: >1 = brighter, <1 = dimmer
+    brightness_mod = (1.0 + edge_boost - trough_dim)[:, :, np.newaxis]
+    result *= brightness_mod
+
+    # Re-normalize per pixel to prevent clipping desaturation:
+    # If any channel exceeds 255, scale the whole pixel down proportionally
+    max_ch = result.max(axis=2, keepdims=True)
+    overflow = np.where(max_ch > 255, 255.0 / np.maximum(max_ch, 1), 1.0)
+    result *= overflow
 
     return np.clip(result, 0, 255).astype(np.uint8)
 

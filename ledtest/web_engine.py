@@ -31,6 +31,7 @@ class FrameEngine:
         self.palette_idx = 0
         self.brightness = config.BRIGHTNESS_CAP
         self.speed = 1.0
+        self.manual_bpm = 120   # manual BPM for DEFAULT mode
         self.running = False
         self.blackout = False
 
@@ -176,6 +177,12 @@ class FrameEngine:
     def set_speed(self, value):
         self.speed = max(0.1, min(5.0, float(value)))
 
+    def set_manual_bpm(self, value):
+        """Set manual BPM for DEFAULT mode (30-200)."""
+        self.manual_bpm = max(30, min(200, int(value)))
+        # Convert BPM to speed: 120 BPM = 1.0x speed (our reference tempo)
+        self.speed = self.manual_bpm / 120.0
+
     def set_blackout(self, on):
         self.blackout = on
         if on:
@@ -276,6 +283,7 @@ class FrameEngine:
             "palette_count": len(PALETTES),
             "brightness": self.brightness,
             "speed": self.speed,
+            "manual_bpm": self.manual_bpm,
             "blackout": self.blackout,
             "diagnostic_mode": self.diagnostic_mode,
             "diagnostic_key": self.diagnostic_key,
@@ -288,7 +296,7 @@ class FrameEngine:
             "fx_intensity": self.fx.intensity,
             "symmetry": self.symmetry,
             "webcam_mode": self.webcam_mode,
-            "audio_mode": "audio" if self.audio.audio_on else "none",
+            "audio_mode": self.audio._mode,
             "audio_sensitivity": self.audio.sensitivity,
             "audio_enabled": self.audio.enabled,
             "bpm": self.audio.get_state().get("bpm", 0),
@@ -354,25 +362,62 @@ class FrameEngine:
         """Generate a frame from the current pattern + palette.
 
         Handles grid models, strand models, and composites.
-        Returns pixel data as flat RGB array for strand/composite models,
-        or 2D grid for grid models.
+        Three render modes: default (time-based), audio (beat+frequency), bpm (pure metronome).
         """
         t = (time.monotonic() - self._start_time) * self.speed
         pattern = PATTERNS[self.pattern_idx]
-        use_audio = self.audio.is_active() and "audio_fn" in pattern
+
+        # Determine render mode
+        if self.audio.is_bpm_mode():
+            render_mode = "bpm"
+        elif self.audio.is_audio_mode() and "audio_fn" in pattern:
+            render_mode = "audio"
+        else:
+            render_mode = "default"
 
         if self.model_type == "strands":
-            return self._generate_strand_frame(t, pattern, use_audio)
+            return self._generate_strand_frame(t, pattern, render_mode)
         elif self.model_type == "composite":
-            return self._generate_composite_frame(t, pattern, use_audio)
+            return self._generate_composite_frame(t, pattern, render_mode)
         else:
-            return self._generate_grid_frame(t, pattern, use_audio)
+            return self._generate_grid_frame(t, pattern, render_mode)
 
-    def _generate_grid_frame(self, t, pattern, use_audio):
+    def _generate_grid_frame(self, t, pattern, render_mode):
         """Generate frame for grid (panel) models."""
         frame = np.zeros((self.height, self.width, 3), dtype=np.uint8)
 
-        if use_audio:
+        if render_mode == "bpm":
+            bc = self.audio.beat_count
+            bp = self.audio.beat_phase
+            if "bpm_fn" in pattern:
+                fn = pattern["bpm_fn"]
+                for y in range(self.height):
+                    for x in range(self.width):
+                        nx = float(self._nx_map[y][x])
+                        ny = float(self._ny_map[y][x])
+                        pw, ph = self._pw_map[y][x], self._ph_map[y][x]
+                        try:
+                            val = max(0, min(255, int(fn(nx, ny, bc, bp, pw, ph))))
+                        except Exception:
+                            val = 0
+                        r, g, b = palette_color(val, self.palette_idx)
+                        frame[y][x] = [r, g, b]
+            else:
+                # Fallback: use default fn with quantized beat-stepped time
+                anim_fn = pattern["fn"]
+                fake_t = bc * 0.4 + bp * 0.4
+                for y in range(self.height):
+                    for x in range(self.width):
+                        nx = float(self._nx_map[y][x])
+                        ny = float(self._ny_map[y][x])
+                        pw, ph = self._pw_map[y][x], self._ph_map[y][x]
+                        try:
+                            val = max(0, min(255, int(anim_fn(nx, ny, fake_t, pw, ph))))
+                        except Exception:
+                            val = 0
+                        r, g, b = palette_color(val, self.palette_idx)
+                        frame[y][x] = [r, g, b]
+        elif render_mode == "audio":
             audio_fn = pattern["audio_fn"]
             bass, mid, treble = self.audio.bass_smooth, self.audio.mid_smooth, self.audio.treble_smooth
             at = self.audio.audio_time
@@ -403,11 +448,11 @@ class FrameEngine:
 
         return frame
 
-    def _generate_strand_frame(self, t, pattern, use_audio):
+    def _generate_strand_frame(self, t, pattern, render_mode):
         """Generate frame for strand models. Returns 1D pixel array.
 
         In symmetry mode, left-side strands are rendered normally, then
-        right-side strands mirror the corresponding left-side strand (reversed).
+        right-side strands mirror the corresponding left-side strand.
         """
         if not self._strand_coords:
             return np.zeros((1, 1, 3), dtype=np.uint8)
@@ -417,16 +462,14 @@ class FrameEngine:
 
         strands = self.model_info.get("strands", [])
 
-        # Build symmetry pairs by name: right strand mirrors left strand
-        # reverse=True means the strands traverse in opposite directions
-        # (Center strands: CL goes bottom→up→left, CR goes right→center→down)
+        # Build symmetry pairs
         sym_name_map = {
             "Right Inner":  ("Left Inner",  False),
             "Right Outer":  ("Left Outer",  False),
             "Lower Right":  ("Lower Left",  False),
-            "Center Right": ("Center Left", True),  # opposite traversal
+            "Center Right": ("Center Left", True),
         }
-        sym_pairs = {}  # right_idx → (left_idx, reverse)
+        sym_pairs = {}
         if self.symmetry:
             name_to_idx = {s["name"]: i for i, s in enumerate(strands)}
             for right_name, (left_name, reverse) in sym_name_map.items():
@@ -435,16 +478,18 @@ class FrameEngine:
                 if ri is not None and li is not None:
                     sym_pairs[ri] = (li, reverse)
 
-        if use_audio:
-            fn = pattern["audio_fn"]
+        # Prepare mode-specific state
+        if render_mode == "bpm":
+            bc = self.audio.beat_count
+            bp = self.audio.beat_phase
+            has_bpm_fn = "bpm_fn" in pattern
+        elif render_mode == "audio":
             bass, mid, treble = self.audio.bass_smooth, self.audio.mid_smooth, self.audio.treble_smooth
             at = self.audio.audio_time
-        else:
-            fn = pattern["fn"]
 
         # Render each strand
         pixel_offset = 0
-        strand_pixels = {}  # cache per-strand pixel data for symmetry
+        strand_pixels = {}
 
         for si, strand in enumerate(strands):
             pc = strand["pixel_count"]
@@ -463,17 +508,22 @@ class FrameEngine:
                     pixel_offset += pc
                     continue
 
-            # Normal render
             pixels = []
             for pi in range(pc):
                 idx = pixel_offset + pi
                 if idx < len(self._strand_coords):
                     nx, ny, pw, ph = self._strand_coords[idx]
                     try:
-                        if use_audio:
-                            val = max(0, min(255, int(fn(nx, ny, at, pw, ph, bass, mid, treble))))
+                        if render_mode == "bpm":
+                            if has_bpm_fn:
+                                val = max(0, min(255, int(pattern["bpm_fn"](nx, ny, bc, bp, pw, ph))))
+                            else:
+                                fake_t = bc * 0.4 + bp * 0.4
+                                val = max(0, min(255, int(pattern["fn"](nx, ny, fake_t, pw, ph))))
+                        elif render_mode == "audio":
+                            val = max(0, min(255, int(pattern["audio_fn"](nx, ny, at, pw, ph, bass, mid, treble))))
                         else:
-                            val = max(0, min(255, int(fn(nx, ny, t, pw, ph))))
+                            val = max(0, min(255, int(pattern["fn"](nx, ny, t, pw, ph))))
                     except Exception:
                         val = 0
                     r, g, b = palette_color(val, self.palette_idx)
@@ -485,20 +535,17 @@ class FrameEngine:
 
         return frame
 
-    def _generate_composite_frame(self, t, pattern, use_audio):
+    def _generate_composite_frame(self, t, pattern, render_mode):
         """Generate frame for composite models (grid + strands combined).
 
         Grid pixels are rendered as a 2D frame, strand pixels are appended
         as a flat row at the bottom. The frontend knows how to split them.
         Reuses _generate_strand_frame for symmetry support.
         """
-        # Generate grid portion
-        grid_frame = self._generate_grid_frame(t, pattern, use_audio)
+        grid_frame = self._generate_grid_frame(t, pattern, render_mode)
 
-        # Generate strand portion using the same method as Bull's Head
-        # (includes symmetry logic)
         if self._strand_coords:
-            strand_frame = self._generate_strand_frame(t, pattern, use_audio)
+            strand_frame = self._generate_strand_frame(t, pattern, render_mode)
             # strand_frame is (1, num_strand_pixels, 3) — pack into grid width
             num_strand_px = strand_frame.shape[1]
             strand_row = np.zeros((1, self.width, 3), dtype=np.uint8)

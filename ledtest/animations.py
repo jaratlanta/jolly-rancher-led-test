@@ -864,8 +864,12 @@ def audio_cymatic_interference(nx, ny, t, w, h, bass, mid, treble):
 def anim_cymatic_bloom(nx, ny, t, w, h):
     """Cymatic Bloom — ornate rotating mandala with radial glow."""
     dx, dy = nx - 0.5, ny - 0.5
-    r = math.sqrt(dx*dx + dy*dy) * 2
-    theta = math.atan2(dy, dx)
+    # Correct for aspect ratio so bloom fills the full vertical space
+    aspect = w / max(h, 1)
+    dx_adj = dx * min(aspect, 1.0)
+    dy_adj = dy / max(aspect, 1.0) if aspect < 1 else dy
+    r = math.sqrt(dx_adj*dx_adj + dy*dy) * 2
+    theta = math.atan2(dy, dx_adj)
 
     # Multi-petal rotating flower
     petals = 6 + math.sin(t * 0.1) * 2  # 4-8 petals
@@ -876,8 +880,8 @@ def anim_cymatic_bloom(nx, ny, t, w, h):
     # Inner ring modulation
     inner = (math.cos(petals * 2 * (theta - rot * 0.7) + math.pi/4) + 1) / 2
 
-    # Radial envelope — bloom from center, fade at edges
-    radial = max(0, 1.0 - r * 1.2)
+    # Radial envelope — stretch to fill panel
+    radial = max(0, 1.0 - r * 0.9)
     radial_ring = (math.sin(r * 8 + t * 0.5) + 1) / 2
 
     # Combine layers
@@ -892,13 +896,15 @@ def anim_cymatic_bloom(nx, ny, t, w, h):
 def audio_cymatic_bloom(nx, ny, t, w, h, bass, mid, treble):
     """Cymatic Bloom — bass controls petal count, treble controls rotation."""
     dx, dy = nx - 0.5, ny - 0.5
-    r = math.sqrt(dx*dx + dy*dy) * 2
-    theta = math.atan2(dy, dx)
-    petals = 3 + bass * 8        # bass = more petals
-    rot = treble * math.pi * 2   # treble rotates the pattern
+    aspect = w / max(h, 1)
+    dx_adj = dx * min(aspect, 1.0)
+    r = math.sqrt(dx_adj*dx_adj + dy*dy) * 2
+    theta = math.atan2(dy, dx_adj)
+    petals = 3 + bass * 8
+    rot = treble * math.pi * 2
     angular = (math.cos(petals * (theta + rot)) + 1) / 2
     inner = (math.cos(petals * 2 * (theta - rot * 0.5)) + 1) / 2
-    radial = max(0, 1.0 - r * 1.2)
+    radial = max(0, 1.0 - r * 0.9)
     radial_ring = (math.sin(r * (6 + mid * 10)) + 1) / 2
     v = (angular * 0.5 + inner * 0.3 + radial_ring * 0.2) * radial
     center_glow = max(0, 1.0 - r * 4) ** 2
@@ -1159,66 +1165,379 @@ def audio_cymatic_sand(nx, ny, t, w, h, bass, mid, treble):
     return int(brightness * 255)
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# BPM functions — pure metronome: (nx, ny, beat_count, beat_phase, w, h) → 0-255
+# beat_count = integer, increments each beat
+# beat_phase = 0.0 on the beat, 1.0 just before next beat
+# No frequency data — purely driven by BPM metronome
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _ease_out(phase):
+    """Smooth ease-out: 1.0 at phase=0, 0.0 at phase=1."""
+    return max(0.0, 1.0 - phase ** 0.5)
+
+def _ease_pulse(phase):
+    """Sharp pulse on beat with smooth tail."""
+    return max(0.0, (math.cos(phase * math.pi) + 1.0) / 2.0)
+
+def bpm_color_cycle(nx, ny, bc, bp, w, h):
+    """Toggle white/black on each beat for beat detection testing."""
+    return 255 if (bc % 2 == 0) else 0
+
+def bpm_wave(nx, ny, bc, bp, w, h):
+    """Wave position jumps each beat, fades between."""
+    t = bc * 0.5
+    val = (math.sin(nx * w * 0.1 + t) * math.cos(ny * h * 0.1 - t * 0.5) + 1) * 127
+    return int(val * _ease_pulse(bp))
+
+def bpm_plasma(nx, ny, bc, bp, w, h):
+    """Plasma steps through frames on each beat."""
+    t = bc * 0.8
+    v = (math.sin(nx*10+t) + math.sin(ny*10+t) + math.sin((nx+ny)*10+t) + 4) / 8
+    return int(v * 255 * (0.4 + 0.6 * _ease_pulse(bp)))
+
+def bpm_scanner(nx, ny, bc, bp, w, h):
+    """Bar jumps to new position each beat."""
+    positions = [0.1, 0.25, 0.4, 0.55, 0.7, 0.85]
+    scan_x = positions[bc % len(positions)]
+    val = max(0, 1 - abs(nx - scan_x) * 8) * 255
+    return int(val * _ease_pulse(bp))
+
+def bpm_noise(nx, ny, bc, bp, w, h):
+    """Burst of random pixels on beat, dark between."""
+    if bp < 0.2:
+        return 255 if random.random() > 0.6 else 0
+    return 0
+
+def bpm_circle(nx, ny, bc, bp, w, h):
+    """Expanding ring per beat."""
+    dist = math.sqrt((nx - 0.5) ** 2 + (ny - 0.5) ** 2)
+    ring_pos = bp * 0.5  # ring expands from center on beat
+    val = max(0, 1 - abs(dist - ring_pos) * 15)
+    return int(val * 255 * _ease_out(bp))
+
+def bpm_digital(nx, ny, bc, bp, w, h):
+    """Digital grid toggles pattern each beat."""
+    offset = bc
+    val = ((int(nx * 10) + int(ny * 10) + offset) % 2 == 0)
+    return int(255 * val * _ease_pulse(bp))
+
+def bpm_snow(nx, ny, bc, bp, w, h):
+    """Snow burst on beat."""
+    if bp < 0.25:
+        return 255 if random.random() > 0.85 else 0
+    return 0
+
+def bpm_cloud(nx, ny, bc, bp, w, h):
+    """Nebula intensity pulses on beat."""
+    t = bc * 0.3
+    val = (math.sin(nx * 5 + t) * math.cos(ny * 5 - t) + 1) / 2
+    return int(val * 255 * _ease_pulse(bp))
+
+def bpm_blob(nx, ny, bc, bp, w, h):
+    """Lava shape changes each beat."""
+    t = bc * 0.6
+    val = (math.sin(nx*3+t) + math.cos(ny*4+t*0.8) + math.sin(math.sqrt(nx*nx+ny*ny)*5-t)) / 3
+    if val < 0.3:
+        val = 0
+    return int(min(255, val * 255 * (0.3 + 0.7 * _ease_pulse(bp))))
+
+def bpm_sparkle(nx, ny, bc, bp, w, h):
+    """Bright sparkle burst on beat, dark between."""
+    if bp < 0.15:
+        return 255 if random.random() > 0.5 else 0
+    return 0
+
+def bpm_tunnel(nx, ny, bc, bp, w, h):
+    """Tunnel zooms in one step per beat."""
+    d = math.sqrt((nx-0.5)**2 + (ny-0.5)**2) + 0.01
+    t = bc * 0.8
+    val = math.sin(1 / d - t) > 0.3
+    return int(255 * val * _ease_pulse(bp))
+
+def bpm_fire(nx, ny, bc, bp, w, h):
+    """Fire intensity bursts on beat."""
+    t = bc * 0.4
+    val = max(0, (math.sin(nx*5+t) * math.cos(ny*2-t*2) + (1-ny)) * 127)
+    return int(min(255, val * (0.2 + 0.8 * _ease_pulse(bp))))
+
+def bpm_spiral(nx, ny, bc, bp, w, h):
+    """Spiral advances by fixed angle per beat."""
+    angle = math.atan2(ny - 0.5, nx - 0.5)
+    dist = math.sqrt((nx - 0.5)**2 + (ny - 0.5)**2)
+    t = bc * 1.2
+    val = 255 if math.sin(angle * 5 + dist * 20 - t) > 0 else 0
+    return int(val * _ease_pulse(bp))
+
+def bpm_bands(nx, ny, bc, bp, w, h):
+    """Stripes shift one step per beat."""
+    offset = bc * 0.2
+    val = 255 if math.sin(nx * 20 + offset) > 0.5 else 0
+    return int(val * _ease_pulse(bp))
+
+def bpm_twist(nx, ny, bc, bp, w, h):
+    """Twister pattern steps per beat."""
+    t = bc * 0.5
+    val = math.sin(nx * 10 + math.sin(ny * 5 + t) * 5) > 0
+    return int(255 * val * _ease_pulse(bp))
+
+def bpm_bounce(nx, ny, bc, bp, w, h):
+    """Ball jumps to new position each beat."""
+    positions = [(0.2, 0.3), (0.5, 0.7), (0.8, 0.2), (0.3, 0.6), (0.7, 0.5), (0.5, 0.5)]
+    cx, cy = positions[bc % len(positions)]
+    d = math.sqrt((nx - cx)**2 + (ny - cy)**2)
+    val = max(0, 1.0 - d * 5)
+    return int(val * 255 * _ease_out(bp))
+
+def bpm_gravity(nx, ny, bc, bp, w, h):
+    """Particles fall on beat."""
+    drop_y = bp * 0.8
+    val = max(0, 1 - abs(ny - drop_y) * 8) * (1 if (int(nx * 15 + bc * 3) % 3 == 0) else 0)
+    return int(val * 255)
+
+def bpm_tint(nx, ny, bc, bp, w, h):
+    """Color field shifts each beat."""
+    t = bc * 0.4
+    val = (math.sin(nx * 5 + t) * math.sin(ny * 5 + t * 0.5) + 1) * 127
+    return int(val * _ease_pulse(bp))
+
+def bpm_flux(nx, ny, bc, bp, w, h):
+    """Flow pattern steps per beat."""
+    t = bc * 0.3
+    val = (math.sin(nx*2+t) + math.sin(ny*3-t) + math.sin(nx+ny+t)) / 3
+    return int(max(0, val * 255 * _ease_pulse(bp)))
+
+def bpm_shape(nx, ny, bc, bp, w, h):
+    """Diamond grows/shrinks on beat."""
+    size = 0.1 + _ease_out(bp) * 0.3
+    val = 255 if (abs(nx - 0.5) + abs(ny - 0.5) < size) else 0
+    return val
+
+def bpm_pond(nx, ny, bc, bp, w, h):
+    """Ripple ring expands from center on each beat."""
+    dist = math.sqrt((nx - 0.5)**2 + (ny - 0.5)**2)
+    radius = bp * 0.7
+    ring = max(0, 1 - abs(dist - radius) * 12)
+    return int(ring * 255)
+
+def bpm_trail(nx, ny, bc, bp, w, h):
+    """Horizontal trail sweeps per beat."""
+    pos = bp
+    val = max(0, 1 - abs(nx - pos) * 6)
+    return int(val * 255)
+
+def bpm_fade(nx, ny, bc, bp, w, h):
+    """Gradient shifts each beat."""
+    t = bc * 0.25
+    val = ((nx + t) % 1.0) * ((ny + t * 0.5) % 1.0)
+    return int(val * 255 * _ease_pulse(bp))
+
+def bpm_helix(nx, ny, bc, bp, w, h):
+    """Double helix steps per beat."""
+    t = bc * 0.5
+    val = abs(math.sin(ny * 10 + t) - nx) < 0.08 or abs(math.cos(ny * 10 + t) - nx) < 0.08
+    return int(255 * val * _ease_pulse(bp))
+
+def bpm_laser(nx, ny, bc, bp, w, h):
+    """Beam jumps to new position each beat."""
+    positions = [0.15, 0.35, 0.5, 0.65, 0.85]
+    beam_y = positions[bc % len(positions)]
+    val = max(0, 1 - abs(ny - beam_y) * 15) * 255
+    return int(val * _ease_out(bp))
+
+def bpm_streak(nx, ny, bc, bp, w, h):
+    """Comet flies across on beat."""
+    pos = bp
+    val = max(0, 1 - abs(nx - pos) * 10)
+    return int(val * 255)
+
+def bpm_rotary(nx, ny, bc, bp, w, h):
+    """Gear steps by fixed angle each beat."""
+    t = bc * math.pi / 3
+    val = math.sin(math.atan2(ny-0.5, nx-0.5) * 6 + t) > 0.3
+    return int(255 * val * _ease_pulse(bp))
+
+def bpm_ang(nx, ny, bc, bp, w, h):
+    """Zigzag shifts per beat."""
+    t = bc * 0.3
+    val = math.sin((nx + ny) * 20 + t) > 0.5
+    return int(255 * val * _ease_pulse(bp))
+
+def bpm_zoom(nx, ny, bc, bp, w, h):
+    """Wormhole pulses in/out per beat — speaker cone effect."""
+    dx, dy = nx - 0.5, ny - 0.5
+    d = math.sqrt(dx*dx + dy*dy) + 0.01
+    # Scale distance by beat phase: compress on beat, expand between
+    scale = 0.5 + _ease_pulse(bp) * 1.5
+    val = math.sin(1 / (d * scale)) > 0
+    return int(255 * val)
+
+def bpm_flow(nx, ny, bc, bp, w, h):
+    """Nebula2 steps per beat."""
+    t = bc * 0.4
+    val = (math.sin(nx*10+t) + math.cos(ny*10+t)) * 127 + 127
+    return int(min(255, val * _ease_pulse(bp)))
+
+def bpm_ocean(nx, ny, bc, bp, w, h):
+    """Wave crests on beat."""
+    t = bc * 0.3
+    val = (math.sin(nx * 5 + t) + math.sin(ny * 2 + t * 0.5)) * 127 + 127
+    return int(min(255, val * _ease_pulse(bp)))
+
+def bpm_lens(nx, ny, bc, bp, w, h):
+    """Focus spot jumps per beat."""
+    cx = 0.3 + (bc % 3) * 0.2
+    cy = 0.3 + ((bc // 3) % 3) * 0.2
+    d = math.sqrt((nx-cx)**2 + (ny-cy)**2)
+    val = max(0, 255 - d * 500)
+    return int(val * _ease_out(bp))
+
+def bpm_lavaflow(nx, ny, bc, bp, w, h):
+    """Eruption pulses per beat."""
+    t = bc * 0.4
+    val = (math.sin(nx*4+t) * math.sin(ny*4-t)) * 127 + 127
+    return int(min(255, val * _ease_pulse(bp)))
+
+def bpm_rainbow(nx, ny, bc, bp, w, h):
+    """Rainbow shifts one step per beat."""
+    val = ((nx + ny + bc * 0.15) % 1.0) * 255
+    return int(val * _ease_pulse(bp))
+
+def bpm_ghosting(nx, ny, bc, bp, w, h):
+    """Ghost pattern steps per beat."""
+    t = bc * 0.3
+    val = math.sin(nx * 5 - t) * 100 + 155
+    return int(max(0, min(255, val * _ease_pulse(bp))))
+
+def bpm_sun(nx, ny, bc, bp, w, h):
+    """Radiate pulses outward on beat."""
+    d = math.sqrt((nx-0.5)**2 + (ny-0.5)**2)
+    # Pulse size grows from center on beat
+    radius = _ease_out(bp) * 0.6
+    val = max(0, 1.0 - abs(d - radius * 0.3) * 5)
+    val += max(0, 1.0 - d * 3) * _ease_pulse(bp)  # center glow
+    return int(min(255, val * 255))
+
+def bpm_drift(nx, ny, bc, bp, w, h):
+    """Tides shift per beat."""
+    t = bc * 0.3
+    val = math.sin(nx * 5 + ny * 2 + t) * 127 + 127
+    return int(min(255, val * _ease_pulse(bp)))
+
+def bpm_wave3(nx, ny, bc, bp, w, h):
+    """Mirage steps per beat."""
+    t = bc * 0.3
+    val = math.sin(nx * 10 + math.sin(ny * 10 + t)) * 127 + 127
+    return int(min(255, val * _ease_pulse(bp)))
+
+# ── Cymatics BPM functions ──
+
+def bpm_chladni(nx, ny, bc, bp, w, h):
+    """Chladni pattern switches mode numbers on each beat."""
+    modes = [(2, 3), (3, 4), (4, 5), (5, 3), (3, 2), (4, 3), (5, 4), (2, 5)]
+    n, m = modes[bc % len(modes)]
+    x, y = nx * math.pi, ny * math.pi
+    v = math.sin(n*x) * math.sin(m*y) - math.sin(m*x) * math.sin(n*y)
+    val = max(0, 1.0 - abs(v) * 3)
+    return int(val * 255 * _ease_pulse(bp))
+
+def bpm_resonance(nx, ny, bc, bp, w, h):
+    """Resonance pattern switches mode on beat."""
+    modes = [2, 3, 4, 5, 6, 3, 5, 4]
+    n = modes[bc % len(modes)]
+    dx, dy = nx - 0.5, ny - 0.5
+    r = math.sqrt(dx*dx + dy*dy) * 10
+    theta = math.atan2(dy, dx)
+    val = math.cos(n * theta) * math.sin(r)
+    return int(max(0, min(255, (val + 1) * 127 * _ease_pulse(bp))))
+
+def bpm_standing(nx, ny, bc, bp, w, h):
+    """Standing wave frequency steps per beat."""
+    freq = 3 + (bc % 6)
+    val = (math.cos(math.sqrt((nx-0.5)**2 + (ny-0.5)**2) * freq * math.pi * 2) + 1) / 2
+    return int(val * 255 * _ease_pulse(bp))
+
+def bpm_harmonics(nx, ny, bc, bp, w, h):
+    """Harmonics step through overtones per beat."""
+    f = 2 + (bc % 5)
+    val = 0
+    for i in range(1, f + 1):
+        val += math.sin(nx * i * 8) * math.cos(ny * i * 8) / i
+    val = (val + 1.5) / 3.0
+    return int(max(0, min(255, val * 255 * _ease_pulse(bp))))
+
+def bpm_cymatic_generic(nx, ny, bc, bp, w, h):
+    """Generic cymatics BPM — mode pattern rotates per beat."""
+    n = 2 + (bc % 4)
+    m = 3 + ((bc // 4) % 3)
+    x, y = nx * math.pi * 2, ny * math.pi * 2
+    v = math.sin(n*x) * math.cos(m*y)
+    return int(max(0, min(255, (v + 1) * 127 * _ease_pulse(bp))))
+
+
 # ─── Pattern Registry ──────────────────────────────────────────────────────
-# Each pattern has: name, default fn (auto-movement), audio_fn (sound-driven)
+# Each pattern: name, fn (default), audio_fn (sound-driven), bpm_fn (metronome-only)
 # Backward compat: ANIMATIONS is an alias for PATTERNS
 
 PATTERNS = [
-    {"name": "Interference", "fn": anim_wave,     "audio_fn": audio_wave},
-    {"name": "Plasma",       "fn": anim_plasma,    "audio_fn": audio_plasma},
-    {"name": "Scanner",      "fn": anim_scanner,   "audio_fn": audio_scanner},
-    {"name": "Pixels",       "fn": anim_noise,     "audio_fn": audio_noise},
-    {"name": "Orbit",        "fn": anim_circle,    "audio_fn": audio_circle},
-    {"name": "Matrix",       "fn": anim_digital,   "audio_fn": audio_digital},
-    {"name": "Blizzard",     "fn": anim_snow,      "audio_fn": audio_snow},
-    {"name": "Nebula",       "fn": anim_cloud,     "audio_fn": audio_cloud},
-    {"name": "Lava",         "fn": anim_blob,      "audio_fn": audio_blob},
-    {"name": "Sparkle",      "fn": anim_sparkle,   "audio_fn": audio_sparkle},
-    {"name": "Tunnel",       "fn": anim_tunnel,    "audio_fn": audio_tunnel},
-    {"name": "Bonfire",      "fn": anim_fire,      "audio_fn": audio_fire},
-    {"name": "Vortex",       "fn": anim_spiral,    "audio_fn": audio_spiral},
-    {"name": "Stripes",      "fn": anim_bands,     "audio_fn": audio_bands},
-    {"name": "Twister",      "fn": anim_twist,     "audio_fn": audio_twist},
-    {"name": "Bouncer",      "fn": anim_bounce,    "audio_fn": audio_bounce},
-    {"name": "Falling",      "fn": anim_gravity,   "audio_fn": audio_gravity},
-    {"name": "Prism",        "fn": anim_tint,      "audio_fn": audio_tint},
-    {"name": "Flow",         "fn": anim_flux,      "audio_fn": audio_flux},
-    {"name": "Diamond",      "fn": anim_shape,     "audio_fn": audio_shape},
-    {"name": "Ripple",       "fn": anim_pond,      "audio_fn": audio_pond},
-    {"name": "Echo",         "fn": anim_trail,     "audio_fn": audio_trail},
-    {"name": "Ghost",        "fn": anim_fade,      "audio_fn": audio_fade},
-    {"name": "DNA",          "fn": anim_helix,     "audio_fn": audio_helix},
-    {"name": "Beams",        "fn": anim_laser,     "audio_fn": audio_laser},
-    {"name": "Comet",        "fn": anim_streak,    "audio_fn": audio_streak},
-    {"name": "Gear",         "fn": anim_rotary,    "audio_fn": audio_rotary},
-    {"name": "ZigZag",       "fn": anim_ang,       "audio_fn": audio_ang},
-    {"name": "Wormhole",     "fn": anim_zoom,      "audio_fn": audio_zoom},
-    {"name": "Nebula2",      "fn": anim_flow,      "audio_fn": audio_flow},
-    {"name": "Waves",        "fn": anim_ocean,     "audio_fn": audio_ocean},
-    {"name": "Focus",        "fn": anim_lens,      "audio_fn": audio_lens},
-    {"name": "Eruption",     "fn": anim_lavaflow,  "audio_fn": audio_lavaflow},
-    {"name": "Prism2",       "fn": anim_rainbow,   "audio_fn": audio_rainbow},
-    {"name": "Echoes",       "fn": anim_ghosting,  "audio_fn": audio_ghosting},
-    {"name": "Radiate",      "fn": anim_sun,       "audio_fn": audio_sun},
-    {"name": "Tides",        "fn": anim_drift,     "audio_fn": audio_drift},
-    {"name": "Mirage",       "fn": anim_wave3,     "audio_fn": audio_wave3},
+    # ── BPM-first test pattern ──
+    {"name": "Color Cycle",  "fn": anim_tint,      "audio_fn": audio_tint,     "bpm_fn": bpm_color_cycle},
+    # ── Core patterns ──
+    {"name": "Interference", "fn": anim_wave,     "audio_fn": audio_wave,     "bpm_fn": bpm_wave},
+    {"name": "Plasma",       "fn": anim_plasma,    "audio_fn": audio_plasma,   "bpm_fn": bpm_plasma},
+    {"name": "Scanner",      "fn": anim_scanner,   "audio_fn": audio_scanner,  "bpm_fn": bpm_scanner},
+    {"name": "Pixels",       "fn": anim_noise,     "audio_fn": audio_noise,    "bpm_fn": bpm_noise},
+    {"name": "Orbit",        "fn": anim_circle,    "audio_fn": audio_circle,   "bpm_fn": bpm_circle},
+    {"name": "Matrix",       "fn": anim_digital,   "audio_fn": audio_digital,  "bpm_fn": bpm_digital},
+    {"name": "Blizzard",     "fn": anim_snow,      "audio_fn": audio_snow,     "bpm_fn": bpm_snow},
+    {"name": "Nebula",       "fn": anim_cloud,     "audio_fn": audio_cloud,    "bpm_fn": bpm_cloud},
+    {"name": "Lava",         "fn": anim_blob,      "audio_fn": audio_blob,     "bpm_fn": bpm_blob},
+    {"name": "Sparkle",      "fn": anim_sparkle,   "audio_fn": audio_sparkle,  "bpm_fn": bpm_sparkle},
+    {"name": "Tunnel",       "fn": anim_tunnel,    "audio_fn": audio_tunnel,   "bpm_fn": bpm_tunnel},
+    {"name": "Bonfire",      "fn": anim_fire,      "audio_fn": audio_fire,     "bpm_fn": bpm_fire},
+    {"name": "Vortex",       "fn": anim_spiral,    "audio_fn": audio_spiral,   "bpm_fn": bpm_spiral},
+    {"name": "Stripes",      "fn": anim_bands,     "audio_fn": audio_bands,    "bpm_fn": bpm_bands},
+    {"name": "Twister",      "fn": anim_twist,     "audio_fn": audio_twist,    "bpm_fn": bpm_twist},
+    {"name": "Bouncer",      "fn": anim_bounce,    "audio_fn": audio_bounce,   "bpm_fn": bpm_bounce},
+    {"name": "Falling",      "fn": anim_gravity,   "audio_fn": audio_gravity,  "bpm_fn": bpm_gravity},
+    {"name": "Prism",        "fn": anim_tint,      "audio_fn": audio_tint,     "bpm_fn": bpm_tint},
+    {"name": "Flow",         "fn": anim_flux,      "audio_fn": audio_flux,     "bpm_fn": bpm_flux},
+    {"name": "Diamond",      "fn": anim_shape,     "audio_fn": audio_shape,    "bpm_fn": bpm_shape},
+    {"name": "Ripple",       "fn": anim_pond,      "audio_fn": audio_pond,     "bpm_fn": bpm_pond},
+    {"name": "Echo",         "fn": anim_trail,     "audio_fn": audio_trail,    "bpm_fn": bpm_trail},
+    {"name": "Ghost",        "fn": anim_fade,      "audio_fn": audio_fade,     "bpm_fn": bpm_fade},
+    {"name": "DNA",          "fn": anim_helix,     "audio_fn": audio_helix,    "bpm_fn": bpm_helix},
+    {"name": "Beams",        "fn": anim_laser,     "audio_fn": audio_laser,    "bpm_fn": bpm_laser},
+    {"name": "Comet",        "fn": anim_streak,    "audio_fn": audio_streak,   "bpm_fn": bpm_streak},
+    {"name": "Gear",         "fn": anim_rotary,    "audio_fn": audio_rotary,   "bpm_fn": bpm_rotary},
+    {"name": "ZigZag",       "fn": anim_ang,       "audio_fn": audio_ang,      "bpm_fn": bpm_ang},
+    {"name": "Wormhole",     "fn": anim_zoom,      "audio_fn": audio_zoom,     "bpm_fn": bpm_zoom},
+    {"name": "Nebula2",      "fn": anim_flow,      "audio_fn": audio_flow,     "bpm_fn": bpm_flow},
+    {"name": "Waves",        "fn": anim_ocean,     "audio_fn": audio_ocean,    "bpm_fn": bpm_ocean},
+    {"name": "Focus",        "fn": anim_lens,      "audio_fn": audio_lens,     "bpm_fn": bpm_lens},
+    {"name": "Eruption",     "fn": anim_lavaflow,  "audio_fn": audio_lavaflow, "bpm_fn": bpm_lavaflow},
+    {"name": "Prism2",       "fn": anim_rainbow,   "audio_fn": audio_rainbow,  "bpm_fn": bpm_rainbow},
+    {"name": "Echoes",       "fn": anim_ghosting,  "audio_fn": audio_ghosting, "bpm_fn": bpm_ghosting},
+    {"name": "Radiate",      "fn": anim_sun,       "audio_fn": audio_sun,      "bpm_fn": bpm_sun},
+    {"name": "Tides",        "fn": anim_drift,     "audio_fn": audio_drift,    "bpm_fn": bpm_drift},
+    {"name": "Mirage",       "fn": anim_wave3,     "audio_fn": audio_wave3,    "bpm_fn": bpm_wave3},
     # ── Cymatics ──
-    {"name": "Chladni",      "fn": anim_chladni,            "audio_fn": audio_chladni},
-    {"name": "Resonance",    "fn": anim_resonance,          "audio_fn": audio_resonance},
-    {"name": "Standing Wave","fn": anim_standing,            "audio_fn": audio_standing},
-    {"name": "Harmonics",    "fn": anim_harmonics,           "audio_fn": audio_harmonics},
-    {"name": "Cells",        "fn": anim_cymatic_interference,"audio_fn": audio_cymatic_interference},
-    {"name": "Bloom",        "fn": anim_cymatic_bloom,       "audio_fn": audio_cymatic_bloom},
-    {"name": "Pulse Rings", "fn": anim_cymatic_pulse,       "audio_fn": audio_cymatic_pulse},
-    {"name": "Web",         "fn": anim_cymatic_web,         "audio_fn": audio_cymatic_web},
-    {"name": "Lotus",       "fn": anim_cymatic_lotus,       "audio_fn": audio_cymatic_lotus},
-    {"name": "Fractal",     "fn": anim_cymatic_fractal,     "audio_fn": audio_cymatic_fractal},
-    {"name": "Vortex 2",    "fn": anim_cymatic_vortex,      "audio_fn": audio_cymatic_vortex},
-    {"name": "Grid",        "fn": anim_cymatic_grid,        "audio_fn": audio_cymatic_grid},
-    {"name": "Star",        "fn": anim_cymatic_star,        "audio_fn": audio_cymatic_star},
-    {"name": "Multi Ripple","fn": anim_cymatic_ripple,      "audio_fn": audio_cymatic_ripple},
-    {"name": "Kaleidoscope","fn": anim_cymatic_kaleidoscope,"audio_fn": audio_cymatic_kaleidoscope},
-    {"name": "Sand",        "fn": anim_cymatic_sand,        "audio_fn": audio_cymatic_sand},
+    {"name": "Chladni",      "fn": anim_chladni,            "audio_fn": audio_chladni,            "bpm_fn": bpm_chladni},
+    {"name": "Resonance",    "fn": anim_resonance,          "audio_fn": audio_resonance,          "bpm_fn": bpm_resonance},
+    {"name": "Standing Wave","fn": anim_standing,            "audio_fn": audio_standing,           "bpm_fn": bpm_standing},
+    {"name": "Harmonics",    "fn": anim_harmonics,           "audio_fn": audio_harmonics,          "bpm_fn": bpm_harmonics},
+    {"name": "Cells",        "fn": anim_cymatic_interference,"audio_fn": audio_cymatic_interference,"bpm_fn": bpm_cymatic_generic},
+    {"name": "Bloom",        "fn": anim_cymatic_bloom,       "audio_fn": audio_cymatic_bloom,      "bpm_fn": bpm_cymatic_generic},
+    {"name": "Pulse Rings", "fn": anim_cymatic_pulse,       "audio_fn": audio_cymatic_pulse,      "bpm_fn": bpm_cymatic_generic},
+    {"name": "Web",         "fn": anim_cymatic_web,         "audio_fn": audio_cymatic_web,        "bpm_fn": bpm_cymatic_generic},
+    {"name": "Lotus",       "fn": anim_cymatic_lotus,       "audio_fn": audio_cymatic_lotus,      "bpm_fn": bpm_cymatic_generic},
+    {"name": "Fractal",     "fn": anim_cymatic_fractal,     "audio_fn": audio_cymatic_fractal,    "bpm_fn": bpm_cymatic_generic},
+    {"name": "Vortex 2",    "fn": anim_cymatic_vortex,      "audio_fn": audio_cymatic_vortex,     "bpm_fn": bpm_cymatic_generic},
+    {"name": "Grid",        "fn": anim_cymatic_grid,        "audio_fn": audio_cymatic_grid,       "bpm_fn": bpm_cymatic_generic},
+    {"name": "Star",        "fn": anim_cymatic_star,        "audio_fn": audio_cymatic_star,       "bpm_fn": bpm_cymatic_generic},
+    {"name": "Multi Ripple","fn": anim_cymatic_ripple,      "audio_fn": audio_cymatic_ripple,     "bpm_fn": bpm_cymatic_generic},
+    {"name": "Kaleidoscope","fn": anim_cymatic_kaleidoscope,"audio_fn": audio_cymatic_kaleidoscope,"bpm_fn": bpm_cymatic_generic},
+    {"name": "Sand",        "fn": anim_cymatic_sand,        "audio_fn": audio_cymatic_sand,       "bpm_fn": bpm_cymatic_generic},
 ]
 
 # Backward compatibility alias

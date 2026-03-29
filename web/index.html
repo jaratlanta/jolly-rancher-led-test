@@ -103,20 +103,21 @@
             </div>
         </div>
 
-        <!-- Animation Mode Toggle: DEFAULT vs AUDIO (BEAT) -->
+        <!-- Animation Mode Toggle: DEFAULT / AUDIO / BPM -->
         <div class="control-row source-row" id="anim-mode-row">
             <div class="source-toggle">
                 <button class="source-btn active" id="mode-default-btn">DEFAULT</button>
-                <button class="source-btn" id="mode-beat-btn">AUDIO (BEAT)</button>
+                <button class="source-btn" id="mode-audio-btn">AUDIO</button>
+                <button class="source-btn" id="mode-bpm-btn">BPM</button>
             </div>
         </div>
 
-        <!-- Audio meters (visible only in AUDIO mode) -->
+        <!-- Audio controls (visible in AUDIO and BPM modes) -->
         <div class="control-row audio-section hidden" id="audio-beat-controls">
             <div class="audio-meter">
-                <div class="meter-bar"><div class="meter-fill" id="meter-bass"></div><span>Bass</span></div>
-                <div class="meter-bar"><div class="meter-fill" id="meter-mid"></div><span>Mid</span></div>
-                <div class="meter-bar"><div class="meter-fill" id="meter-treble"></div><span>Treble</span></div>
+                <div class="meter-bar" id="meter-bass-bar"><div class="meter-fill" id="meter-bass"></div><span>Bass</span></div>
+                <div class="meter-bar" id="meter-mid-bar"><div class="meter-fill" id="meter-mid"></div><span>Mid</span></div>
+                <div class="meter-bar" id="meter-treble-bar"><div class="meter-fill" id="meter-treble"></div><span>Treble</span></div>
                 <div class="bpm-display" id="bpm-display">-- BPM</div>
             </div>
             <div class="slider-group">
@@ -156,9 +157,9 @@
 
         <div class="control-row" id="speed-row">
             <div class="slider-group">
-                <span class="slider-label">Speed</span>
-                <input type="range" id="speed-slider" min="10" max="500" value="100">
-                <span class="slider-value" id="speed-value">1.0x</span>
+                <span class="slider-label">BPM</span>
+                <input type="range" id="speed-slider" min="30" max="200" value="120">
+                <span class="slider-value" id="speed-value">120</span>
             </div>
         </div>
 

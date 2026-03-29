@@ -1,12 +1,15 @@
 """
-Audio engine — predictive beat-sync with downbeat pulse.
+Audio engine — predictive metronome with BPM mode.
 
-Once the browser detects BPM, this engine runs an internal metronome that
-PREDICTS when beats will land (eliminating latency). The animation advances
-with a cosine pulse shape: fast burst on the downbeat, smooth glide between.
+Three modes:
+  none  — no audio, patterns animate on their own timer
+  audio — beat-synced time + bass/mid/treble frequency data drive patterns
+  bpm   — pure metronome: only beat_count and beat_phase drive patterns
 
-The browser's beat detection only updates the BPM and re-syncs the phase —
-the actual animation timing is driven by the predicted beat clock.
+KEY DESIGN: Once a BPM is established, the engine runs a FREE-RUNNING
+METRONOME that auto-increments beat_count on schedule. Browser beat
+detections only nudge the BPM and fine-tune phase — they never directly
+trigger visual beats. This eliminates jitter from sloppy beat detection.
 """
 import math
 import time
@@ -15,14 +18,16 @@ import time
 AUDIO_MODES = [
     {"key": "none",  "name": "Off"},
     {"key": "audio", "name": "Audio"},
+    {"key": "bpm",   "name": "BPM"},
 ]
 
 
 class AudioEngine:
-    """Predictive beat-synced animation driver."""
+    """Free-running metronome with BPM tracking."""
 
     def __init__(self):
         self.enabled = False
+        self._mode = "none"
         self.audio_on = False
         self.sensitivity = 1.0
 
@@ -36,33 +41,47 @@ class AudioEngine:
         self.mid_smooth = 0.0
         self.treble_smooth = 0.0
 
-        # BPM and beat clock
-        self._bpm = 0.0
-        self._beat_interval = 0.0     # seconds per beat
-        self._last_beat_time = 0.0    # monotonic time of last confirmed beat
-        self._beat_count = 0          # total beats received (for sync)
-        self._time_since_beat = 0.0   # seconds since last browser beat event
+        # BPM tracking
+        self._bpm = 0.0              # smoothed raw BPM from browser
+        self._effective_bpm = 0.0    # actual animation BPM (halved in BPM mode)
+        self._beat_interval = 0.0    # seconds per visual beat
 
-        # Animation time — advances with pulse shape
+        # Free-running metronome state
+        self._metro_time = 0.0       # accumulated time within current beat
+        self._beat_count = 0         # auto-incremented by metronome
+        self._beat_phase = 0.0       # 0.0 = on beat, 1.0 = just before next
+
+        # Animation time (used by "audio" mode)
         self.audio_time = 0.0
-        self._step_per_beat = 0.4     # how much audio_time advances per beat
+        self._step_per_beat = 0.4
 
     def reset(self):
         self.bass = self.mid = self.treble = 0.0
         self.bass_smooth = self.mid_smooth = self.treble_smooth = 0.0
         self._bpm = 0.0
+        self._effective_bpm = 0.0
         self._beat_interval = 0.0
-        self._last_beat_time = 0.0
+        self._metro_time = 0.0
         self._beat_count = 0
-        self._time_since_beat = 0.0
+        self._beat_phase = 0.0
         self.audio_time = 0.0
 
     def set_mode(self, mode):
-        on = (mode == "audio")
-        if on != self.audio_on:
-            self.audio_on = on
-            if not on:
+        if mode not in ("none", "audio", "bpm"):
+            mode = "none"
+        if mode != self._mode:
+            self._mode = mode
+            self.audio_on = mode in ("audio", "bpm")
+            if mode == "none":
                 self.reset()
+
+    @property
+    def beat_count(self):
+        return self._beat_count
+
+    @property
+    def beat_phase(self):
+        return self._beat_phase
 
     def update_audio(self, bass, mid, treble):
         s = self.sensitivity
@@ -71,28 +90,39 @@ class AudioEngine:
         self.treble = min(1.0, treble * s)
 
     def on_beat(self, bpm):
-        """Called by server when browser detects a beat.
+        """Called when browser detects a beat.
 
-        This re-syncs our internal metronome phase to the actual beat,
-        and updates the BPM for prediction.
+        This ONLY updates the BPM estimate. It does NOT directly trigger
+        visual beats — the free-running metronome in tick() handles that.
+        The metronome's phase is gently nudged toward the detected beat.
         """
         if not self.enabled or not self.audio_on:
             return
 
-        now = time.monotonic()
-
-        # Update BPM (smooth it to avoid jitter)
+        # Update BPM (smooth heavily to avoid jitter)
         if bpm > 0:
             if self._bpm > 0:
-                self._bpm = self._bpm * 0.7 + bpm * 0.3
+                self._bpm = self._bpm * 0.8 + bpm * 0.2
             else:
                 self._bpm = bpm
-            self._beat_interval = 60.0 / max(40, self._bpm)
 
-        # Re-sync phase: this beat is "now"
-        self._last_beat_time = now
-        self._beat_count += 1
-        self._time_since_beat = 0.0
+            # Halve rate in BPM mode (120→60 visual BPM)
+            if self._mode == "bpm":
+                self._effective_bpm = self._bpm / 2.0
+            else:
+                self._effective_bpm = self._bpm
+            self._beat_interval = 60.0 / max(20, self._effective_bpm)
+
+        # Phase nudge: gently pull metronome toward the detected beat
+        # Don't hard-reset — just adjust slightly so we drift into alignment
+        if self._beat_interval > 0:
+            # If we're more than 70% through the beat, the detected beat
+            # is probably for the NEXT beat — nudge forward
+            if self._beat_phase > 0.7:
+                self._metro_time = self._beat_interval * 0.95
+            # If we're early in the beat, the detection is late — nudge back
+            elif self._beat_phase > 0.1:
+                self._metro_time *= 0.85  # pull back gently
 
     def tick(self, dt):
         if not self.enabled or not self.audio_on:
@@ -109,52 +139,54 @@ class AudioEngine:
                 alpha = min(1.0, dt * 5)
             setattr(self, attr, current + (raw - current) * alpha)
 
-        self._time_since_beat += dt
+        # ── Free-running metronome ─────────────────────────────────────
+        if self._beat_interval > 0:
+            self._metro_time += dt
 
-        # ── Predictive beat-synced advancement ────────────────────────
-        # Once we have a BPM, run an internal metronome.
-        # Animation speed pulses: FAST on downbeat, SLOW between beats.
-        # This makes the animation visibly "hit" on each beat.
+            # When we've accumulated a full beat interval, advance beat_count
+            while self._metro_time >= self._beat_interval:
+                self._metro_time -= self._beat_interval
+                self._beat_count += 1
 
-        if self._bpm > 0 and self._beat_interval > 0:
-            # Where are we in the current beat cycle? (0.0 = on beat, 1.0 = next beat)
-            phase = self._time_since_beat / self._beat_interval
-            # Wrap phase (in case we miss a beat event)
-            phase = phase % 1.0
+            # Phase: 0.0 = just hit a beat, 1.0 = about to hit next
+            self._beat_phase = self._metro_time / self._beat_interval
 
-            # Pulse shape: cosine curve that peaks at phase=0 (downbeat)
-            #   At phase 0.0 (downbeat): speed = base + boost = high
-            #   At phase 0.5 (between):  speed = base         = low
-            # This creates a smooth acceleration/deceleration per beat.
-            base_speed = 0.3   # minimum speed between beats (gentle glide)
-            boost = 1.7        # extra speed on the downbeat
-            pulse = (math.cos(phase * 2.0 * math.pi) + 1.0) / 2.0  # 0..1, peaks at phase=0
-
-            speed = base_speed + boost * pulse
-
-            # Advance audio_time
-            self.audio_time += speed * self._step_per_beat * dt / self._beat_interval
-
+            # ── Audio mode: advance audio_time with pulse shape ────────
+            if self._mode == "audio":
+                phase = self._beat_phase
+                base_speed = 0.3
+                boost = 1.7
+                pulse = (math.cos(phase * 2.0 * math.pi) + 1.0) / 2.0
+                speed = base_speed + boost * pulse
+                self.audio_time += speed * self._step_per_beat * dt / self._beat_interval
         else:
             # No BPM yet — gentle drift based on audio energy
             energy = self.bass_smooth * 0.5 + self.mid_smooth * 0.3 + self.treble_smooth * 0.2
             if energy > 0.05:
                 self.audio_time += energy * dt * 0.2
 
-        # Fade BPM if no beats for a while (music stopped)
-        if self._time_since_beat > 5.0:
-            self._bpm *= 0.95
+        # Fade BPM if no audio data for a while
+        # (bass_smooth will decay to 0 when music stops)
+        if self._bpm > 0 and self.bass_smooth < 0.01 and self.mid_smooth < 0.01:
+            self._bpm *= 0.998  # very slow fade
             if self._bpm < 30:
                 self._bpm = 0.0
+                self._effective_bpm = 0.0
                 self._beat_interval = 0.0
 
     def is_active(self):
         return self.enabled and self.audio_on
 
+    def is_bpm_mode(self):
+        return self.enabled and self._mode == "bpm"
+
+    def is_audio_mode(self):
+        return self.enabled and self._mode == "audio"
+
     def get_state(self):
         return {
-            "audio_mode": "audio" if self.audio_on else "none",
+            "audio_mode": self._mode,
             "audio_enabled": self.enabled,
             "audio_sensitivity": self.sensitivity,
-            "bpm": round(self._bpm) if self._bpm > 0 else 0,
+            "bpm": round(self._effective_bpm) if self._effective_bpm > 0 else 0,
         }

@@ -429,11 +429,12 @@ function updateUI() {
     brSlider.value = state.brightness || 128;
     brValue.textContent = Math.round((state.brightness || 128) / 255 * 100) + '%';
 
-    // Speed
+    // Manual BPM
     const spSlider = document.getElementById('speed-slider');
     const spValue = document.getElementById('speed-value');
-    spSlider.value = Math.round((state.speed || 1.0) * 100);
-    spValue.textContent = (state.speed || 1.0).toFixed(1) + 'x';
+    const manualBpm = state.manual_bpm || 120;
+    spSlider.value = manualBpm;
+    spValue.textContent = manualBpm;
 
     // Blackout
     const blackoutBtn = document.getElementById('blackout-btn');
@@ -616,7 +617,7 @@ function savePreset() {
     ];
     if (fx) parts.push(fx.charAt(0).toUpperCase() + fx.slice(1));
     parts.push(Math.round((state.brightness || 128) / 255 * 100) + '%');
-    parts.push((state.speed || 1.0).toFixed(1) + 'x');
+    parts.push((state.manual_bpm || 120) + 'bpm');
     const name = parts.join(' / ');
 
     send({
@@ -628,8 +629,7 @@ function savePreset() {
             fx: state.fx || 'none',
             fx_intensity: state.fx_intensity || 0.5,
             brightness: state.brightness,
-            speed: state.speed,
-            audio_mode: state.audio_mode || 'none',
+            manual_bpm: state.manual_bpm || 120,
         }
     });
 }
@@ -941,11 +941,11 @@ document.getElementById('brightness-slider').addEventListener('input', (e) => {
     send({ cmd: 'set_brightness', value: val });
 });
 
-// Speed slider
+// Manual BPM slider (DEFAULT mode)
 document.getElementById('speed-slider').addEventListener('input', (e) => {
-    const val = parseInt(e.target.value) / 100;
-    document.getElementById('speed-value').textContent = val.toFixed(1) + 'x';
-    send({ cmd: 'set_speed', value: val });
+    const bpm = parseInt(e.target.value);
+    document.getElementById('speed-value').textContent = bpm;
+    send({ cmd: 'set_manual_bpm', value: bpm });
 });
 
 // FX intensity slider
@@ -1216,13 +1216,13 @@ function audioLoop() {
         if (_beatTimes.length > 20) _beatTimes = _beatTimes.slice(-20);
     }
 
-    // ── BPM estimation (every 1.5 seconds) ─────────────────────────────
+    // ── BPM estimation (every 4 seconds for smoother average) ──────────
     _bpmCalcTimer += dt;
-    if (_bpmCalcTimer > 1.5) {
+    if (_bpmCalcTimer > 4.0) {
         _bpmCalcTimer = 0;
 
-        // Remove stale beats (older than 6 seconds)
-        const cutoff = now - 6;
+        // Remove stale beats (older than 8 seconds — wider window)
+        const cutoff = now - 8;
         _beatTimes = _beatTimes.filter(t => t > cutoff);
 
         if (_beatTimes.length >= 4) {
@@ -1239,9 +1239,9 @@ function audioLoop() {
                 const median = intervals[Math.floor(intervals.length / 2)];
                 const newBPM = 60 / median;
 
-                // Smooth BPM changes
+                // Heavier smoothing: 70% previous + 30% new
                 if (_clientBPM > 0) {
-                    _clientBPM = _clientBPM * 0.5 + newBPM * 0.5;
+                    _clientBPM = _clientBPM * 0.7 + newBPM * 0.3;
                 } else {
                     _clientBPM = newBPM;
                 }
@@ -1288,28 +1288,36 @@ function audioLoop() {
 }
 
 function updateAnimModeUI() {
-    const isAudio = (state.audio_mode || 'none') === 'audio';
+    const mode = state.audio_mode || 'none';
     const defaultBtn = document.getElementById('mode-default-btn');
-    const beatBtn = document.getElementById('mode-beat-btn');
+    const audioBtn = document.getElementById('mode-audio-btn');
+    const bpmBtn = document.getElementById('mode-bpm-btn');
     const beatControls = document.getElementById('audio-beat-controls');
     const speedRow = document.getElementById('speed-row');
     const animModeRow = document.getElementById('anim-mode-row');
 
-    if (defaultBtn && beatBtn) {
-        defaultBtn.classList.toggle('active', !isAudio);
-        beatBtn.classList.toggle('active', isAudio);
-    }
-    if (beatControls) {
-        beatControls.classList.toggle('hidden', !isAudio);
-    }
-    if (speedRow) {
-        speedRow.style.display = isAudio ? 'none' : '';
-    }
+    // Update active button (3-way toggle)
+    if (defaultBtn) defaultBtn.classList.toggle('active', mode === 'none');
+    if (audioBtn) audioBtn.classList.toggle('active', mode === 'audio');
+    if (bpmBtn) bpmBtn.classList.toggle('active', mode === 'bpm');
+
+    // Show audio controls for audio or bpm modes
+    const showControls = mode !== 'none';
+    if (beatControls) beatControls.classList.toggle('hidden', !showControls);
+
+    // In BPM mode: hide frequency meters (only show BPM display + sensitivity)
+    const bassBar = document.getElementById('meter-bass-bar');
+    const midBar = document.getElementById('meter-mid-bar');
+    const trebleBar = document.getElementById('meter-treble-bar');
+    if (bassBar) bassBar.style.display = mode === 'bpm' ? 'none' : '';
+    if (midBar) midBar.style.display = mode === 'bpm' ? 'none' : '';
+    if (trebleBar) trebleBar.style.display = mode === 'bpm' ? 'none' : '';
+
+    // Hide speed slider when any audio mode is active
+    if (speedRow) speedRow.style.display = showControls ? 'none' : '';
 
     // Hide animation mode row when webcam is active
-    if (animModeRow) {
-        animModeRow.style.display = state.webcam_mode ? 'none' : '';
-    }
+    if (animModeRow) animModeRow.style.display = state.webcam_mode ? 'none' : '';
 
     // Update sensitivity slider
     const sensSlider = document.getElementById('audio-sensitivity-slider');
@@ -1329,15 +1337,17 @@ function updateAnimModeUI() {
 }
 
 function toggleAnimMode() {
-    const isAudio = (state.audio_mode || 'none') === 'audio';
-    if (isAudio) {
-        // Switch to DEFAULT
+    // Cycle: none → audio → bpm → none
+    const mode = state.audio_mode || 'none';
+    if (mode === 'none') {
+        send({ cmd: 'set_audio_mode', key: 'audio' });
+        if (!audioEnabled) startAudio();
+    } else if (mode === 'audio') {
+        send({ cmd: 'set_audio_mode', key: 'bpm' });
+        if (!audioEnabled) startAudio();
+    } else {
         send({ cmd: 'set_audio_mode', key: 'none' });
         stopAudio();
-    } else {
-        // Switch to AUDIO (BEAT) — auto-start mic
-        send({ cmd: 'set_audio_mode', key: 'audio' });
-        startAudio();
     }
 }
 
@@ -1346,8 +1356,12 @@ document.getElementById('mode-default-btn').addEventListener('click', () => {
     send({ cmd: 'set_audio_mode', key: 'none' });
     stopAudio();
 });
-document.getElementById('mode-beat-btn').addEventListener('click', () => {
+document.getElementById('mode-audio-btn').addEventListener('click', () => {
     send({ cmd: 'set_audio_mode', key: 'audio' });
+    if (!audioEnabled) startAudio();
+});
+document.getElementById('mode-bpm-btn').addEventListener('click', () => {
+    send({ cmd: 'set_audio_mode', key: 'bpm' });
     if (!audioEnabled) startAudio();
 });
 

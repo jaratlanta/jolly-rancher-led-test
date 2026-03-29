@@ -462,5 +462,58 @@
       "speed": 0.53,
       "audio_mode": "none"
     }
+  },
+  {
+    "id": "04a6a440",
+    "name": "Tides / Ocean Breeze / Ripple_cymatics / 50% / 0.6x",
+    "created": 1774752234.3313322,
+    "preset": {
+      "pattern_idx": 36,
+      "palette_idx": 13,
+      "fx": "ripple_cymatics",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "speed": 0.56,
+      "audio_mode": "audio"
+    }
+  },
+  {
+    "id": "9580e3c0",
+    "name": "Radiate / Magma / Ripple_cymatics / 50% / 1.0x",
+    "created": 1774753933.834713,
+    "preset": {
+      "pattern_idx": 35,
+      "palette_idx": 10,
+      "fx": "ripple_cymatics",
+      "fx_intensity": 0.22,
+      "brightness": 128,
+      "speed": 1
+    }
+  },
+  {
+    "id": "93400eef",
+    "name": "Waves / Laser Show / 50% / 1.0x",
+    "created": 1774754934.791309,
+    "preset": {
+      "pattern_idx": 30,
+      "palette_idx": 41,
+      "fx": "none",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "speed": 1
+    }
+  },
+  {
+    "id": "34e6af72",
+    "name": "Bonfire / Molten Metal / Ripple_cymatics / 50% / 1.0x",
+    "created": 1774754995.621824,
+    "preset": {
+      "pattern_idx": 11,
+      "palette_idx": 42,
+      "fx": "ripple_cymatics",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "speed": 1
+    }
   }
 ]

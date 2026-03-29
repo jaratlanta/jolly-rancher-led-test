@@ -128,6 +128,8 @@ async def websocket_endpoint(ws: WebSocket):
                 engine.set_brightness(data["value"])
             elif cmd == "set_speed":
                 engine.set_speed(data["value"])
+            elif cmd == "set_manual_bpm":
+                engine.set_manual_bpm(data["value"])
             elif cmd == "blackout":
                 engine.set_blackout(data.get("on", True))
             elif cmd == "set_diagnostic":
@@ -179,8 +181,9 @@ async def websocket_endpoint(ws: WebSocket):
                         engine.set_brightness(pd["brightness"])
                     if "speed" in pd:
                         engine.set_speed(pd["speed"])
-                    if "audio_mode" in pd:
-                        engine.set_audio_mode(pd["audio_mode"])
+                    if "manual_bpm" in pd:
+                        engine.set_manual_bpm(pd["manual_bpm"])
+                    # audio_mode is NOT restored from presets — it's an independent setting
             elif cmd == "get_state":
                 pass  # just respond with state below
 
