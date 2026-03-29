@@ -146,6 +146,8 @@ async def websocket_endpoint(ws: WebSocket):
                 engine.set_audio_mode(data["key"])
             elif cmd == "set_audio_sensitivity":
                 engine.set_audio_sensitivity(data["value"])
+            elif cmd == "set_bpm_rate":
+                engine.audio.set_bpm_half(data.get("half", True))
             elif cmd == "set_audio_enabled":
                 engine.set_audio_enabled(data.get("on", False))
             elif cmd == "audio_data":

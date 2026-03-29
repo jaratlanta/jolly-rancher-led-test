@@ -515,5 +515,96 @@
       "brightness": 128,
       "speed": 1
     }
+  },
+  {
+    "id": "4cd143f1",
+    "name": "Eruption / Molten Metal / Ripple_cymatics / 50% / 120bpm",
+    "created": 1774815599.405921,
+    "preset": {
+      "pattern_idx": 32,
+      "palette_idx": 42,
+      "fx": "ripple_cymatics",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "manual_bpm": 120
+    }
+  },
+  {
+    "id": "c0fa3ff9",
+    "name": "Tides / Molten Metal / Ripple_shatter / 50% / 120bpm",
+    "created": 1774815668.138996,
+    "preset": {
+      "pattern_idx": 36,
+      "palette_idx": 42,
+      "fx": "ripple_shatter",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "manual_bpm": 120
+    }
+  },
+  {
+    "id": "a3af1df1",
+    "name": "Mirage / Laser Show / Ripple_cymatics / 50% / 120bpm",
+    "created": 1774815726.3839831,
+    "preset": {
+      "pattern_idx": 37,
+      "palette_idx": 41,
+      "fx": "ripple_cymatics",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "manual_bpm": 120
+    }
+  },
+  {
+    "id": "fbd59185",
+    "name": "Chladni / Laser Show / 50% / 120bpm",
+    "created": 1774815763.0395389,
+    "preset": {
+      "pattern_idx": 38,
+      "palette_idx": 41,
+      "fx": "none",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "manual_bpm": 120
+    }
+  },
+  {
+    "id": "4cdb9849",
+    "name": "Chladni / Soap Bubble / 50% / 120bpm",
+    "created": 1774815788.505207,
+    "preset": {
+      "pattern_idx": 38,
+      "palette_idx": 40,
+      "fx": "none",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "manual_bpm": 120
+    }
+  },
+  {
+    "id": "52bdaf0d",
+    "name": "Color Cycle / Cyberpunk / Cymatics_flow / 50% / 120bpm",
+    "created": 1774815836.482195,
+    "preset": {
+      "pattern_idx": 0,
+      "palette_idx": 0,
+      "fx": "cymatics_flow",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "manual_bpm": 120
+    }
+  },
+  {
+    "id": "441b1e81",
+    "name": "Color Cycle / Bismuth / Cymatics_flow / 100% / 120bpm",
+    "created": 1774815912.170165,
+    "preset": {
+      "pattern_idx": 0,
+      "palette_idx": 39,
+      "fx": "cymatics_flow",
+      "fx_intensity": 0.5,
+      "brightness": 255,
+      "manual_bpm": 120
+    }
   }
 ]

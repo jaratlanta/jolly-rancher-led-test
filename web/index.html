@@ -120,10 +120,16 @@
                 <div class="meter-bar" id="meter-treble-bar"><div class="meter-fill" id="meter-treble"></div><span>Treble</span></div>
                 <div class="bpm-display" id="bpm-display">-- BPM</div>
             </div>
-            <div class="slider-group">
+            <!-- Sensitivity: Audio mode only -->
+            <div class="slider-group" id="audio-sensitivity-row">
                 <span class="slider-label">Sensitivity</span>
                 <input type="range" id="audio-sensitivity-slider" min="10" max="300" value="100">
                 <span class="slider-value" id="audio-sensitivity-value">1.0x</span>
+            </div>
+            <!-- Half/Full BPM: BPM mode only -->
+            <div class="source-toggle" id="bpm-rate-row" style="display: none;">
+                <button class="source-btn active" id="bpm-half-btn">HALF BPM</button>
+                <button class="source-btn" id="bpm-full-btn">FULL BPM</button>
             </div>
         </div>
 

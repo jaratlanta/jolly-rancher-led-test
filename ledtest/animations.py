@@ -1177,24 +1177,89 @@ def _ease_out(phase):
     return max(0.0, 1.0 - phase ** 0.5)
 
 def _ease_pulse(phase):
-    """Sharp pulse on beat with smooth tail."""
-    return max(0.0, (math.cos(phase * math.pi) + 1.0) / 2.0)
+    """Fast attack, very slow decay — never goes dark.
+
+    phase 0.0 = on beat (brightness 1.0)
+    phase 1.0 = just before next beat (brightness ~0.35)
+    Uses exponential decay for a long glowing tail.
+    """
+    # Exponential decay: slow falloff so brightness lingers
+    raw = math.exp(-phase * 1.5)  # 1.0 → ~0.22 over one beat
+    return 0.30 + 0.70 * raw  # floor 0.30, peak 1.0
 
 def bpm_color_cycle(nx, ny, bc, bp, w, h):
-    """Toggle white/black on each beat for beat detection testing."""
-    return 255 if (bc % 2 == 0) else 0
+    """One random orb pulses per beat — elegant shifting glow.
+
+    6 fixed orb positions. On each beat, only ONE orb lights up
+    (chosen pseudo-randomly by beat count). All orbs have a soft
+    ambient glow, but the active one flares bright on the downbeat.
+    """
+    orbs = [
+        (0.20, 0.25),
+        (0.80, 0.25),
+        (0.35, 0.50),
+        (0.65, 0.50),
+        (0.25, 0.78),
+        (0.75, 0.78),
+    ]
+
+    # Which orb is active this beat (pseudo-random, never same twice in a row)
+    active = (bc * 3 + bc // 2) % len(orbs)
+
+    pulse = _ease_pulse(bp)
+    spread = 0.20
+
+    val = 0.0
+    for i, (ox, oy) in enumerate(orbs):
+        dx = nx - ox
+        dy = ny - oy
+        dist_sq = dx * dx + dy * dy
+        glow = math.exp(-dist_sq / (2 * spread * spread))
+
+        if i == active:
+            # Active orb: bright pulse on beat, soft between
+            val += glow * (40 + 215 * pulse)
+        else:
+            # Inactive orbs: very soft ambient
+            val += glow * 25
+
+    return int(max(0, min(255, val)))
 
 def bpm_wave(nx, ny, bc, bp, w, h):
-    """Wave position jumps each beat, fades between."""
-    t = bc * 0.5
-    val = (math.sin(nx * w * 0.1 + t) * math.cos(ny * h * 0.1 - t * 0.5) + 1) * 127
-    return int(val * _ease_pulse(bp))
+    """Wave steps to new position each beat with glowing hotspots.
+
+    Two wave centers shift each beat. The pattern stays visible
+    with ambient glow; the pulse brightens the active hotspots.
+    """
+    # Two hotspot centers that shift each beat
+    cx1 = (math.sin(bc * 1.8) + 1) / 2
+    cy1 = (math.cos(bc * 2.3) + 1) / 2
+    cx2 = (math.sin(bc * 1.1 + 2) + 1) / 2
+    cy2 = (math.cos(bc * 1.5 + 1) + 1) / 2
+
+    # Interference from two sources
+    d1 = math.sqrt((nx - cx1)**2 + (ny - cy1)**2)
+    d2 = math.sqrt((nx - cx2)**2 + (ny - cy2)**2)
+    wave = (math.sin(d1 * 15) + math.sin(d2 * 12) + 2) / 4  # 0 to 1
+
+    pulse = _ease_pulse(bp)
+    # Ambient shape always visible, pulse boosts the peaks
+    val = wave * (80 + 175 * pulse)
+    return int(max(0, min(255, val)))
 
 def bpm_plasma(nx, ny, bc, bp, w, h):
-    """Plasma steps through frames on each beat."""
+    """Plasma shifts to new state each beat — always visible, pulses brighter.
+
+    The plasma field steps to a new frozen frame each beat.
+    Ambient glow keeps the shape visible; downbeat flares it up.
+    """
     t = bc * 0.8
     v = (math.sin(nx*10+t) + math.sin(ny*10+t) + math.sin((nx+ny)*10+t) + 4) / 8
-    return int(v * 255 * (0.4 + 0.6 * _ease_pulse(bp)))
+
+    pulse = _ease_pulse(bp)
+    # Always visible (ambient 0.3), pulses to full on beat
+    val = v * 255 * (0.35 + 0.65 * pulse)
+    return int(max(0, min(255, val)))
 
 def bpm_scanner(nx, ny, bc, bp, w, h):
     """Bar jumps to new position each beat."""
@@ -1210,17 +1275,21 @@ def bpm_noise(nx, ny, bc, bp, w, h):
     return 0
 
 def bpm_circle(nx, ny, bc, bp, w, h):
-    """Expanding ring per beat."""
+    """Orbit — multiple rings at different radii, pulse bright on beat."""
     dist = math.sqrt((nx - 0.5) ** 2 + (ny - 0.5) ** 2)
-    ring_pos = bp * 0.5  # ring expands from center on beat
-    val = max(0, 1 - abs(dist - ring_pos) * 15)
-    return int(val * 255 * _ease_out(bp))
+    t = bc * 0.6
+    rings = (math.sin(dist * 20 - t) + 1) / 2  # ring pattern
+    pulse = _ease_pulse(bp)
+    val = rings * (80 + 175 * pulse)
+    return int(max(0, min(255, val)))
 
 def bpm_digital(nx, ny, bc, bp, w, h):
-    """Digital grid toggles pattern each beat."""
+    """Checkerboard — large squares, toggles each beat, always visible."""
     offset = bc
-    val = ((int(nx * 10) + int(ny * 10) + offset) % 2 == 0)
-    return int(255 * val * _ease_pulse(bp))
+    val = ((int(nx * 4) + int(ny * 4) + offset) % 2 == 0)
+    pulse = _ease_pulse(bp)
+    bright = 60 + 195 * pulse if val else 30 + 50 * pulse
+    return int(max(0, min(255, bright)))
 
 def bpm_snow(nx, ny, bc, bp, w, h):
     """Snow burst on beat."""
@@ -1235,12 +1304,12 @@ def bpm_cloud(nx, ny, bc, bp, w, h):
     return int(val * 255 * _ease_pulse(bp))
 
 def bpm_blob(nx, ny, bc, bp, w, h):
-    """Lava shape changes each beat."""
+    """Lava — organic shapes shift each beat, always visible."""
     t = bc * 0.6
-    val = (math.sin(nx*3+t) + math.cos(ny*4+t*0.8) + math.sin(math.sqrt(nx*nx+ny*ny)*5-t)) / 3
-    if val < 0.3:
-        val = 0
-    return int(min(255, val * 255 * (0.3 + 0.7 * _ease_pulse(bp))))
+    val = (math.sin(nx*3+t) + math.cos(ny*4+t*0.8) + math.sin(math.sqrt(nx*nx+ny*ny)*5-t) + 3) / 6
+    pulse = _ease_pulse(bp)
+    bright = val * (80 + 175 * pulse)
+    return int(max(0, min(255, bright)))
 
 def bpm_sparkle(nx, ny, bc, bp, w, h):
     """Bright sparkle burst on beat, dark between."""
@@ -1282,12 +1351,14 @@ def bpm_twist(nx, ny, bc, bp, w, h):
     return int(255 * val * _ease_pulse(bp))
 
 def bpm_bounce(nx, ny, bc, bp, w, h):
-    """Ball jumps to new position each beat."""
+    """Large glowing orb at different positions each beat, always visible."""
     positions = [(0.2, 0.3), (0.5, 0.7), (0.8, 0.2), (0.3, 0.6), (0.7, 0.5), (0.5, 0.5)]
     cx, cy = positions[bc % len(positions)]
     d = math.sqrt((nx - cx)**2 + (ny - cy)**2)
-    val = max(0, 1.0 - d * 5)
-    return int(val * 255 * _ease_out(bp))
+    glow = math.exp(-d * d / (2 * 0.2 * 0.2))  # wider spread
+    pulse = _ease_pulse(bp)
+    val = glow * (70 + 185 * pulse) + 25  # ambient floor
+    return int(max(0, min(255, val)))
 
 def bpm_gravity(nx, ny, bc, bp, w, h):
     """Particles fall on beat."""
@@ -1339,11 +1410,14 @@ def bpm_helix(nx, ny, bc, bp, w, h):
     return int(255 * val * _ease_pulse(bp))
 
 def bpm_laser(nx, ny, bc, bp, w, h):
-    """Beam jumps to new position each beat."""
+    """Wide beam at different position each beat, always visible."""
     positions = [0.15, 0.35, 0.5, 0.65, 0.85]
     beam_y = positions[bc % len(positions)]
-    val = max(0, 1 - abs(ny - beam_y) * 15) * 255
-    return int(val * _ease_out(bp))
+    dist = abs(ny - beam_y)
+    glow = math.exp(-dist * dist / (2 * 0.08 * 0.08))  # wide gaussian beam
+    pulse = _ease_pulse(bp)
+    val = glow * (60 + 195 * pulse) + 20  # ambient floor
+    return int(max(0, min(255, val)))
 
 def bpm_streak(nx, ny, bc, bp, w, h):
     """Comet flies across on beat."""
@@ -1486,13 +1560,10 @@ PATTERNS = [
     {"name": "Interference", "fn": anim_wave,     "audio_fn": audio_wave,     "bpm_fn": bpm_wave},
     {"name": "Plasma",       "fn": anim_plasma,    "audio_fn": audio_plasma,   "bpm_fn": bpm_plasma},
     {"name": "Scanner",      "fn": anim_scanner,   "audio_fn": audio_scanner,  "bpm_fn": bpm_scanner},
-    {"name": "Pixels",       "fn": anim_noise,     "audio_fn": audio_noise,    "bpm_fn": bpm_noise},
     {"name": "Orbit",        "fn": anim_circle,    "audio_fn": audio_circle,   "bpm_fn": bpm_circle},
     {"name": "Matrix",       "fn": anim_digital,   "audio_fn": audio_digital,  "bpm_fn": bpm_digital},
-    {"name": "Blizzard",     "fn": anim_snow,      "audio_fn": audio_snow,     "bpm_fn": bpm_snow},
     {"name": "Nebula",       "fn": anim_cloud,     "audio_fn": audio_cloud,    "bpm_fn": bpm_cloud},
     {"name": "Lava",         "fn": anim_blob,      "audio_fn": audio_blob,     "bpm_fn": bpm_blob},
-    {"name": "Sparkle",      "fn": anim_sparkle,   "audio_fn": audio_sparkle,  "bpm_fn": bpm_sparkle},
     {"name": "Tunnel",       "fn": anim_tunnel,    "audio_fn": audio_tunnel,   "bpm_fn": bpm_tunnel},
     {"name": "Bonfire",      "fn": anim_fire,      "audio_fn": audio_fire,     "bpm_fn": bpm_fire},
     {"name": "Vortex",       "fn": anim_spiral,    "audio_fn": audio_spiral,   "bpm_fn": bpm_spiral},

@@ -715,32 +715,71 @@ def fx_ripple_shatter(engine, frame, dt):
                         disp_scale_base=2.5, motion_thresh=5)
 
 
+# ─── Gentle Cymatics variants (less disruption than Cymatics Ripple) ─────────
+
+def fx_cymatics_whisper(engine, frame, dt):
+    """Cymatics Whisper — very subtle standing wave shimmer."""
+    return _ripple_core(engine, frame, dt,
+                        damping=0.988, edge_mult_scale=3, trough_scale=1.5,
+                        inject_edge=0.03, inject_drops=1, drop_strength=0.12,
+                        disp_scale_base=0.4)
+
+def fx_cymatics_breath(engine, frame, dt):
+    """Cymatics Breath — gentle organic breathing distortion."""
+    return _ripple_core(engine, frame, dt,
+                        damping=0.987, edge_mult_scale=4, trough_scale=2,
+                        inject_edge=0.04, inject_drops=2, drop_strength=0.15,
+                        disp_scale_base=0.6)
+
+def fx_cymatics_flow(engine, frame, dt):
+    """Cymatics Flow — moderate standing wave with smooth movement."""
+    return _ripple_core(engine, frame, dt,
+                        damping=0.986, edge_mult_scale=5, trough_scale=2.5,
+                        inject_edge=0.05, inject_drops=2, drop_strength=0.20,
+                        disp_scale_base=0.8)
+
+def fx_cymatics_pulse(engine, frame, dt):
+    """Cymatics Pulse — noticeable standing wave patterns, still controlled."""
+    return _ripple_core(engine, frame, dt,
+                        damping=0.986, edge_mult_scale=6, trough_scale=3,
+                        inject_edge=0.06, inject_drops=2, drop_strength=0.25,
+                        disp_scale_base=1.0)
+
+
 # ─── FX Registry ─────────────────────────────────────────────────────────────
 
 FX_REGISTRY = {
-    "glow":            fx_glow,
-    "trails":          fx_trails,
-    "phosphor":        fx_phosphor,
-    "ripple":          fx_ripple,
-    "ripple_soft":     fx_ripple_soft,
-    "ripple_deep":     fx_ripple_deep,
-    "ripple_rain":     fx_ripple_rain,
-    "ripple_glass":    fx_ripple_glass,
-    "ripple_cymatics": fx_ripple_cymatics,
-    "ripple_shatter":  fx_ripple_shatter,
+    "glow":              fx_glow,
+    "trails":            fx_trails,
+    "phosphor":          fx_phosphor,
+    "ripple":            fx_ripple,
+    "ripple_soft":       fx_ripple_soft,
+    "ripple_deep":       fx_ripple_deep,
+    "ripple_rain":       fx_ripple_rain,
+    "ripple_glass":      fx_ripple_glass,
+    "ripple_cymatics":   fx_ripple_cymatics,
+    "ripple_shatter":    fx_ripple_shatter,
+    "cymatics_whisper":  fx_cymatics_whisper,
+    "cymatics_breath":   fx_cymatics_breath,
+    "cymatics_flow":     fx_cymatics_flow,
+    "cymatics_pulse":    fx_cymatics_pulse,
 }
 
 # Ordered list for UI display
 FX_LIST = [
-    {"key": "none",            "name": "None"},
-    {"key": "glow",            "name": "Glow"},
-    {"key": "trails",          "name": "Trails"},
-    {"key": "phosphor",        "name": "Phosphor"},
-    {"key": "ripple",          "name": "Ripple"},
-    {"key": "ripple_soft",     "name": "Soft Ripple"},
-    {"key": "ripple_deep",     "name": "Deep Ripple"},
-    {"key": "ripple_rain",     "name": "Rain Ripple"},
-    {"key": "ripple_glass",    "name": "Glass Ripple"},
-    {"key": "ripple_cymatics", "name": "Cymatics Ripple"},
-    {"key": "ripple_shatter",  "name": "Shatter Ripple"},
+    {"key": "none",              "name": "None"},
+    {"key": "glow",              "name": "Glow"},
+    {"key": "trails",            "name": "Trails"},
+    {"key": "phosphor",          "name": "Phosphor"},
+    {"key": "ripple",            "name": "Ripple"},
+    {"key": "ripple_soft",       "name": "Soft Ripple"},
+    {"key": "ripple_deep",       "name": "Deep Ripple"},
+    {"key": "ripple_rain",       "name": "Rain Ripple"},
+    {"key": "ripple_glass",      "name": "Glass Ripple"},
+    {"key": "ripple_cymatics",   "name": "Cymatics Ripple"},
+    {"key": "ripple_shatter",    "name": "Shatter Ripple"},
+    {"key": "cymatics_whisper",  "name": "Cymatics Whisper"},
+    {"key": "cymatics_breath",   "name": "Cymatics Breath"},
+    {"key": "cymatics_flow",     "name": "Cymatics Flow"},
+    {"key": "cymatics_pulse",    "name": "Cymatics Pulse"},
 ]

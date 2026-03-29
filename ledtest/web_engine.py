@@ -300,6 +300,7 @@ class FrameEngine:
             "audio_sensitivity": self.audio.sensitivity,
             "audio_enabled": self.audio.enabled,
             "bpm": self.audio.get_state().get("bpm", 0),
+            "bpm_half": self.audio._bpm_half,
         }
 
     # ─── Panel coordinates ─────────────────────────────────────────────────

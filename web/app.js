@@ -1319,12 +1319,27 @@ function updateAnimModeUI() {
     // Hide animation mode row when webcam is active
     if (animModeRow) animModeRow.style.display = state.webcam_mode ? 'none' : '';
 
+    // Show sensitivity in Audio mode, Half/Full toggle in BPM mode
+    const sensRow = document.getElementById('audio-sensitivity-row');
+    const rateRow = document.getElementById('bpm-rate-row');
+    if (sensRow) sensRow.style.display = mode === 'audio' ? '' : 'none';
+    if (rateRow) rateRow.style.display = mode === 'bpm' ? '' : 'none';
+
     // Update sensitivity slider
     const sensSlider = document.getElementById('audio-sensitivity-slider');
     const sensValue = document.getElementById('audio-sensitivity-value');
     if (sensSlider && sensValue) {
         sensSlider.value = Math.round((state.audio_sensitivity || 1.0) * 100);
         sensValue.textContent = (state.audio_sensitivity || 1.0).toFixed(1) + 'x';
+    }
+
+    // Update Half/Full BPM toggle
+    const halfBtn = document.getElementById('bpm-half-btn');
+    const fullBtn = document.getElementById('bpm-full-btn');
+    if (halfBtn && fullBtn) {
+        const isHalf = state.bpm_half !== false; // default to half
+        halfBtn.classList.toggle('active', isHalf);
+        fullBtn.classList.toggle('active', !isHalf);
     }
 
     // Update BPM display
@@ -1369,6 +1384,18 @@ document.getElementById('audio-sensitivity-slider').addEventListener('input', (e
     const val = parseInt(e.target.value) / 100;
     document.getElementById('audio-sensitivity-value').textContent = val.toFixed(1) + 'x';
     send({ cmd: 'set_audio_sensitivity', value: val });
+});
+
+// Half/Full BPM toggle
+document.getElementById('bpm-half-btn').addEventListener('click', () => {
+    send({ cmd: 'set_bpm_rate', half: true });
+    document.getElementById('bpm-half-btn').classList.add('active');
+    document.getElementById('bpm-full-btn').classList.remove('active');
+});
+document.getElementById('bpm-full-btn').addEventListener('click', () => {
+    send({ cmd: 'set_bpm_rate', half: false });
+    document.getElementById('bpm-full-btn').classList.add('active');
+    document.getElementById('bpm-half-btn').classList.remove('active');
 });
 
 // ─── Init ────────────────────────────────────────────────────────────────────

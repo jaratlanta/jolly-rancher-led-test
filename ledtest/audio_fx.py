@@ -30,6 +30,7 @@ class AudioEngine:
         self._mode = "none"
         self.audio_on = False
         self.sensitivity = 1.0
+        self._bpm_half = True  # True = half BPM (default), False = full BPM
 
         # Raw band values (0..1)
         self.bass = 0.0
@@ -41,10 +42,10 @@ class AudioEngine:
         self.mid_smooth = 0.0
         self.treble_smooth = 0.0
 
-        # BPM tracking
-        self._bpm = 0.0              # smoothed raw BPM from browser
-        self._effective_bpm = 0.0    # actual animation BPM (halved in BPM mode)
-        self._beat_interval = 0.0    # seconds per visual beat
+        # BPM tracking — start at 120 so it works immediately
+        self._bpm = 120.0            # smoothed raw BPM from browser
+        self._effective_bpm = 60.0   # actual animation BPM (halved in BPM mode)
+        self._beat_interval = 1.0    # seconds per visual beat (60/60 = 1s)
 
         # Free-running metronome state
         self._metro_time = 0.0       # accumulated time within current beat
@@ -58,9 +59,9 @@ class AudioEngine:
     def reset(self):
         self.bass = self.mid = self.treble = 0.0
         self.bass_smooth = self.mid_smooth = self.treble_smooth = 0.0
-        self._bpm = 0.0
-        self._effective_bpm = 0.0
-        self._beat_interval = 0.0
+        self._bpm = 120.0
+        self._effective_bpm = 60.0
+        self._beat_interval = 1.0
         self._metro_time = 0.0
         self._beat_count = 0
         self._beat_phase = 0.0
@@ -74,6 +75,17 @@ class AudioEngine:
             self.audio_on = mode in ("audio", "bpm")
             if mode == "none":
                 self.reset()
+
+    def set_bpm_half(self, half):
+        """Toggle half BPM (True) or full BPM (False)."""
+        self._bpm_half = bool(half)
+        # Recalculate effective BPM immediately
+        if self._bpm > 0:
+            if self._bpm_half and self._mode == "bpm":
+                self._effective_bpm = self._bpm / 2.0
+            else:
+                self._effective_bpm = self._bpm
+            self._beat_interval = 60.0 / max(20, self._effective_bpm)
 
     @property
     def beat_count(self):
@@ -99,30 +111,27 @@ class AudioEngine:
         if not self.enabled or not self.audio_on:
             return
 
-        # Update BPM (smooth heavily to avoid jitter)
+        # Update BPM — very heavy smoothing (95/5) so changes ease in gently
+        # This prevents flickering from noisy beat detection
         if bpm > 0:
-            if self._bpm > 0:
-                self._bpm = self._bpm * 0.8 + bpm * 0.2
-            else:
-                self._bpm = bpm
+            self._bpm = self._bpm * 0.95 + bpm * 0.05
 
-            # Halve rate in BPM mode (120→60 visual BPM)
-            if self._mode == "bpm":
+            # Halve rate in BPM mode if half toggle is on
+            if self._mode == "bpm" and self._bpm_half:
                 self._effective_bpm = self._bpm / 2.0
             else:
                 self._effective_bpm = self._bpm
             self._beat_interval = 60.0 / max(20, self._effective_bpm)
 
-        # Phase nudge: gently pull metronome toward the detected beat
-        # Don't hard-reset — just adjust slightly so we drift into alignment
+        # Phase nudge: very gently pull metronome toward the detected beat
+        # Subtle adjustments only — prevents flicker from noisy detection
         if self._beat_interval > 0:
-            # If we're more than 70% through the beat, the detected beat
-            # is probably for the NEXT beat — nudge forward
             if self._beat_phase > 0.7:
-                self._metro_time = self._beat_interval * 0.95
-            # If we're early in the beat, the detection is late — nudge back
-            elif self._beat_phase > 0.1:
-                self._metro_time *= 0.85  # pull back gently
+                # Late in cycle — detected beat is probably next one, nudge forward slightly
+                self._metro_time = self._metro_time * 0.9 + self._beat_interval * 0.1
+            elif self._beat_phase > 0.15:
+                # Mid-cycle — detection is late, pull back very gently
+                self._metro_time *= 0.95
 
     def tick(self, dt):
         if not self.enabled or not self.audio_on:
@@ -189,4 +198,5 @@ class AudioEngine:
             "audio_enabled": self.enabled,
             "audio_sensitivity": self.sensitivity,
             "bpm": round(self._effective_bpm) if self._effective_bpm > 0 else 0,
+            "bpm_half": self._bpm_half,
         }
