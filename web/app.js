@@ -178,9 +178,8 @@ function renderFrame(frameData) {
         // Size bull head relative to front panel: bull = 84" (7ft), front panel = 24"
         // So bull head height = 3.5× front panel height
         // Front panel height in pixels = rows * spacing
-        const containerW = getContainerWidth();
-        const sideMaxW = (containerW - 40) * 0.45;
-        const sideParams = calcLedParams(220, vcHeight, sideMaxW);
+        const containerW = getContainerWidth() - 42;
+        const sideParams = calcLedParams(220, vcHeight, containerW);
         const frontPanelH = vcHeight * sideParams.spacing;
         const bullTargetH = frontPanelH * 3.5;
 
@@ -220,17 +219,23 @@ function renderPanelsToCanvases(frameData, fCtx, fCanvas, lCtx, lCanvas, rCtx, r
     const frontCols = front.cols;
     const rows = vcHeight;
 
-    const containerW = getContainerWidth();
-    const sideMaxW = (containerW - 40) * 0.45;
+    const containerW = getContainerWidth() - 42;
 
-    // Use side spacing for ALL panels so they have identical row height
-    const leftParams = calcLedParams(leftCols, rows, sideMaxW);
-    const rightParams = calcLedParams(rightCols, rows, sideMaxW);
-    const frontParams = { ...leftParams };  // same spacing = same height
+    // Use the widest panel (side) as the reference for consistent dot sizing.
+    // All panels share the same spacing so dots are the same size everywhere.
+    const maxCols = Math.max(leftCols, rightCols);
+    const refParams = calcLedParams(maxCols, rows, containerW);
+    const spacing = refParams.spacing;
+    const radius = refParams.radius;
+    const glow = refParams.glow;
+    const padding = refParams.padding;
 
-    renderToCanvas(fCtx, fCanvas, frameData, frontCols, rows, front.col_offset, frontParams);
-    renderToCanvas(lCtx, lCanvas, frameData, leftCols, rows, lsFront.col_offset, leftParams);
-    renderToCanvas(rCtx, rCanvas, frameData, rightCols, rows, rsRear.col_offset, rightParams);
+    // Front uses same dot size but is narrower (fewer cols)
+    const sharedParams = { spacing, radius, glow, padding };
+
+    renderToCanvas(fCtx, fCanvas, frameData, frontCols, rows, front.col_offset, sharedParams);
+    renderToCanvas(lCtx, lCanvas, frameData, leftCols, rows, lsFront.col_offset, sharedParams);
+    renderToCanvas(rCtx, rCanvas, frameData, rightCols, rows, rsRear.col_offset, sharedParams);
 }
 
 function renderStrandsToCanvas(ctx, canvas, pixelData, strands, opts) {
@@ -823,31 +828,69 @@ function sampleWebcam() {
     if (!webcamActive || !webcamVideo || webcamVideo.readyState < 2) return;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
-    // Downsample video to matrix dimensions
+    const vidW = webcamVideo.videoWidth;
+    const vidH = webcamVideo.videoHeight;
+    if (!vidW || !vidH) return;
+
     webcamSampleCanvas.width = vcWidth;
     webcamSampleCanvas.height = vcHeight;
 
-    // Mirror horizontally for selfie-style
-    webcamSampleCtx.save();
-    webcamSampleCtx.scale(-1, 1);
-    webcamSampleCtx.drawImage(webcamVideo, -vcWidth, 0, vcWidth, vcHeight);
-    webcamSampleCtx.restore();
+    // For multi-panel models, draw the webcam into each panel's region independently
+    // so each panel gets a properly aspect-ratio-fitted webcam image.
+    // For single-panel (test panel), just fit the whole canvas.
+    if (panels.length > 1) {
+        // Draw webcam fitted into each panel's region
+        for (const p of panels) {
+            _drawWebcamFitted(webcamSampleCtx, webcamVideo, vidW, vidH,
+                p.col_offset, 0, p.cols, vcHeight);
+        }
+    } else {
+        // Single panel — fit webcam to full canvas
+        _drawWebcamFitted(webcamSampleCtx, webcamVideo, vidW, vidH,
+            0, 0, vcWidth, vcHeight);
+    }
 
     const imageData = webcamSampleCtx.getImageData(0, 0, vcWidth, vcHeight);
-    const data = imageData.data; // RGBA
+    const data = imageData.data;
 
-    // Convert to brightness (single byte per pixel)
     const brightness = new Uint8Array(vcWidth * vcHeight);
     for (let i = 0; i < brightness.length; i++) {
         const r = data[i * 4];
         const g = data[i * 4 + 1];
         const b = data[i * 4 + 2];
-        // Luminance formula
         brightness[i] = Math.round(r * 0.299 + g * 0.587 + b * 0.114);
     }
 
-    // Send as binary to server
     ws.send(brightness.buffer);
+}
+
+function _drawWebcamFitted(ctx, video, vidW, vidH, destX, destY, destW, destH) {
+    // "Cover" fit: crop the webcam to fill the destination region
+    // without stretching. Maintains aspect ratio, center-crops the excess.
+    const destAspect = destW / destH;
+    const vidAspect = vidW / vidH;
+
+    let srcX, srcY, srcW, srcH;
+    if (vidAspect > destAspect) {
+        // Video is wider than dest — crop sides
+        srcH = vidH;
+        srcW = vidH * destAspect;
+        srcX = (vidW - srcW) / 2;
+        srcY = 0;
+    } else {
+        // Video is taller than dest — crop top/bottom
+        srcW = vidW;
+        srcH = vidW / destAspect;
+        srcX = 0;
+        srcY = (vidH - srcH) / 2;
+    }
+
+    // Mirror horizontally for selfie-style
+    ctx.save();
+    ctx.translate(destX + destW, destY);
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, destW, destH);
+    ctx.restore();
 }
 
 function updateSourceUI() {
@@ -1014,14 +1057,40 @@ document.addEventListener('keydown', (e) => {
             e.preventDefault();
             toggleWebcam();
             break;
-        case 'a': case 'A':
-            e.preventDefault();
-            toggleAnimMode();
-            break;
+        // 'a' key removed — conflicts with numpad. Use UI button instead.
         case 's': case 'S':
             if (!e.ctrlKey && !e.metaKey) {
                 e.preventDefault();
                 savePreset();
+            }
+            break;
+
+        // ─── Numpad keys (SayoDevice 2x6V) ─────────────────────────
+        // Layout: 1,2,3,4,5,6,7,8,9,0,a,b
+        //   1 = toggle preset cycle on/off
+        //   a = previous preset (←)
+        //   b = next preset (→)
+        //   2-9, 0 = jump to saved preset by slot (1-9)
+        case '1':
+            e.preventDefault();
+            toggleCycle();
+            break;
+        case 'a': case 'A':
+            e.preventDefault();
+            cyclePreset(-1);
+            break;
+        case 'b': case 'B':
+            e.preventDefault();
+            cyclePreset(1);
+            break;
+        case '2': case '3': case '4': case '5': case '6':
+        case '7': case '8': case '9': case '0':
+            e.preventDefault();
+            // 2→slot 0, 3→slot 1, ... 9→slot 7, 0→slot 8
+            const slotMap = {'2':0,'3':1,'4':2,'5':3,'6':4,'7':5,'8':6,'9':7,'0':8};
+            const slot = slotMap[e.key];
+            if (slot !== undefined && presets && slot < presets.length) {
+                send({ cmd: 'load_preset', id: presets[slot].id });
             }
             break;
     }
@@ -1074,31 +1143,146 @@ function stopAudio() {
     send({ cmd: 'set_audio_enabled', on: false });
 }
 
+// ─── Client-side beat detection ────────────────────────────────────────────
+// Uses energy flux: compare current bass energy to a rolling average.
+// When current energy exceeds the average by a threshold, it's a beat.
+let _beatHistory = [];        // rolling window of bass energy values
+let _beatHistorySize = 43;    // ~0.7 seconds at 60fps
+let _beatCooldown = 0;
+let _beatTimes = [];          // timestamps of recent beats for BPM
+let _clientBPM = 0;
+let _bpmCalcTimer = 0;
+let _lastAudioLoopTime = 0;
+
 function audioLoop() {
     if (!audioEnabled || !audioAnalyser) return;
 
+    const now = performance.now() / 1000;
+    const dt = _lastAudioLoopTime > 0 ? now - _lastAudioLoopTime : 0.016;
+    _lastAudioLoopTime = now;
+
     audioAnalyser.getByteFrequencyData(audioDataArray);
 
+    // ── Extract frequency bands ────────────────────────────────────────
+    // Bass: bins 1-8 (sub-bass + bass, ~40Hz to ~350Hz)
     let bass = 0;
-    for (let i = 0; i < 6; i++) bass += audioDataArray[i];
-    bass = (bass / 6) / 255;
+    for (let i = 1; i < 8; i++) bass += audioDataArray[i];
+    bass = (bass / 7) / 255;
 
+    // Mid: bins 10-30
     let mid = 0;
     for (let i = 10; i < 30; i++) mid += audioDataArray[i];
     mid = (mid / 20) / 255;
 
+    // Treble: bins 35-80
     let treble = 0;
     for (let i = 35; i < 80; i++) treble += audioDataArray[i];
     treble = (treble / 45) / 255;
 
-    send({ cmd: 'audio_data', bass, mid, treble });
+    // ── Beat detection via energy flux ─────────────────────────────────
+    // Use low-frequency energy (bins 1-12) for kick detection
+    let kickEnergy = 0;
+    for (let i = 1; i < 12; i++) kickEnergy += audioDataArray[i];
+    kickEnergy /= 11;  // 0-255 range
 
+    _beatHistory.push(kickEnergy);
+    if (_beatHistory.length > _beatHistorySize) _beatHistory.shift();
+
+    // Rolling average
+    let avg = 0;
+    for (let i = 0; i < _beatHistory.length; i++) avg += _beatHistory[i];
+    avg /= _beatHistory.length;
+
+    // Variance for adaptive threshold
+    let variance = 0;
+    for (let i = 0; i < _beatHistory.length; i++) {
+        const d = _beatHistory[i] - avg;
+        variance += d * d;
+    }
+    variance /= _beatHistory.length;
+    const stddev = Math.sqrt(variance);
+
+    // Beat = current energy significantly above the rolling average
+    // Adaptive: threshold scales with how dynamic the signal is
+    const threshold = Math.max(15, avg + stddev * 1.2);
+
+    _beatCooldown = Math.max(0, _beatCooldown - dt);
+
+    let beatDetected = false;
+    if (kickEnergy > threshold && kickEnergy > 25 && _beatCooldown <= 0) {
+        beatDetected = true;
+        _beatCooldown = 0.15; // minimum 150ms between beats
+        _beatTimes.push(now);
+        if (_beatTimes.length > 20) _beatTimes = _beatTimes.slice(-20);
+    }
+
+    // ── BPM estimation (every 1.5 seconds) ─────────────────────────────
+    _bpmCalcTimer += dt;
+    if (_bpmCalcTimer > 1.5) {
+        _bpmCalcTimer = 0;
+
+        // Remove stale beats (older than 6 seconds)
+        const cutoff = now - 6;
+        _beatTimes = _beatTimes.filter(t => t > cutoff);
+
+        if (_beatTimes.length >= 4) {
+            // Compute intervals
+            const intervals = [];
+            for (let i = 1; i < _beatTimes.length; i++) {
+                const iv = _beatTimes[i] - _beatTimes[i - 1];
+                if (iv > 0.2 && iv < 1.5) intervals.push(iv); // 40-300 BPM range
+            }
+
+            if (intervals.length >= 3) {
+                // Median interval (robust to outliers)
+                intervals.sort((a, b) => a - b);
+                const median = intervals[Math.floor(intervals.length / 2)];
+                const newBPM = 60 / median;
+
+                // Smooth BPM changes
+                if (_clientBPM > 0) {
+                    _clientBPM = _clientBPM * 0.5 + newBPM * 0.5;
+                } else {
+                    _clientBPM = newBPM;
+                }
+                _clientBPM = Math.max(40, Math.min(220, _clientBPM));
+            }
+        } else {
+            _clientBPM *= 0.7; // fade out if no beats
+            if (_clientBPM < 30) _clientBPM = 0;
+        }
+    }
+
+    // ── Send to server ─────────────────────────────────────────────────
+    const msg = { cmd: 'audio_data', bass, mid, treble };
+    if (beatDetected) {
+        msg.beat = true;
+        msg.bpm = Math.round(_clientBPM);
+    }
+    send(msg);
+
+    // ── Update UI meters ───────────────────────────────────────────────
     const bassMeter = document.getElementById('meter-bass');
     const midMeter = document.getElementById('meter-mid');
     const trebleMeter = document.getElementById('meter-treble');
     if (bassMeter) bassMeter.style.height = (bass * 100) + '%';
     if (midMeter) midMeter.style.height = (mid * 100) + '%';
     if (trebleMeter) trebleMeter.style.height = (treble * 100) + '%';
+
+    // Flash BPM display on beat
+    const bpmEl = document.getElementById('bpm-display');
+    if (bpmEl) {
+        const bpm = Math.round(_clientBPM);
+        bpmEl.textContent = bpm > 0 ? `${bpm} BPM` : '-- BPM';
+        if (beatDetected) {
+            bpmEl.style.color = '#fff';
+            bpmEl.style.background = 'rgba(0, 174, 239, 0.3)';
+            setTimeout(() => {
+                bpmEl.style.color = bpm > 0 ? 'var(--accent)' : 'rgba(255,255,255,0.3)';
+                bpmEl.style.background = 'rgba(0, 174, 239, 0.08)';
+            }, 100);
+        }
+    }
 
     audioAnimFrameId = requestAnimationFrame(audioLoop);
 }
@@ -1133,6 +1317,14 @@ function updateAnimModeUI() {
     if (sensSlider && sensValue) {
         sensSlider.value = Math.round((state.audio_sensitivity || 1.0) * 100);
         sensValue.textContent = (state.audio_sensitivity || 1.0).toFixed(1) + 'x';
+    }
+
+    // Update BPM display
+    const bpmEl = document.getElementById('bpm-display');
+    if (bpmEl) {
+        const bpm = state.bpm || 0;
+        bpmEl.textContent = bpm > 0 ? `${bpm} BPM` : '-- BPM';
+        bpmEl.style.color = bpm > 0 ? 'var(--accent)' : 'rgba(255,255,255,0.3)';
     }
 }
 

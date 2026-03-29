@@ -1,15 +1,20 @@
 """
-Baseline Knob V2.1 USB HID controller integration.
+USB HID controller integration:
+  1. Baseline Knob V2.1 — rotary encoder + 3 buttons (consumer control HID)
+  2. SayoDevice 2x6V numpad — 12 keys mapped as keyboard numbers 1-12
 
-Maps the physical knob's buttons and rotary encoder to app controls:
-  - Left button (Prev Track 0xB6): previous preset
-  - Right button (Next Track 0xB5): next preset
-  - Center button (Play/Pause 0xCD): randomize animation + palette
-  - Dial clockwise (Vol Up 0xE9): speed up
-  - Dial counter-clockwise (Vol Down 0xEA): speed down
+Knob controls:
+  - Left button (Prev Track): previous preset
+  - Right button (Next Track): next preset
+  - Center button (Play/Pause): randomize animation + palette
+  - Dial CW (Vol Up): speed up
+  - Dial CCW (Vol Down): speed down
 
-Runs a background thread polling the HID device. Gracefully handles
-the knob being disconnected or not present.
+Numpad controls:
+  - Key 1: Toggle preset cycle on/off
+  - Key 2: Previous pattern
+  - Key 3: Next pattern
+  - Keys 4-12: Jump to specific patterns (first 9 patterns, indices 0-8)
 """
 import threading
 import time
@@ -22,15 +27,18 @@ except ImportError:
     HID_AVAILABLE = False
 
 # Baseline Knob V2.1 USB IDs
-VENDOR_ID = 0x4244
-PRODUCT_ID = 0x4B4E
+KNOB_VID = 0x4244
+KNOB_PID = 0x4B4E
 
-# HID Consumer Control usage codes (byte[1] of 3-byte reports)
-VOL_UP = 0xE9       # Dial clockwise
-VOL_DOWN = 0xEA     # Dial counter-clockwise
-NEXT_TRACK = 0xB5   # Right button
-PREV_TRACK = 0xB6   # Left button
-PLAY_PAUSE = 0xCD   # Center button
+# Note: SayoDevice 2x6V numpad is handled in the browser (app.js)
+# because macOS blocks raw HID access to keyboard devices.
+
+# HID Consumer Control usage codes (knob)
+VOL_UP = 0xE9
+VOL_DOWN = 0xEA
+NEXT_TRACK = 0xB5
+PREV_TRACK = 0xB6
+PLAY_PAUSE = 0xCD
 
 # Speed step per dial click
 SPEED_STEP = 0.1
@@ -39,127 +47,114 @@ SPEED_MAX = 5.0
 
 
 class KnobController:
-    """Reads the Baseline Knob V2.1 and dispatches actions to the FrameEngine."""
+    """Reads USB HID devices (knob + numpad) and dispatches actions to FrameEngine."""
 
     def __init__(self, engine, presets_getter):
-        """
-        Args:
-            engine: FrameEngine instance
-            presets_getter: callable that returns the current presets list
-        """
         self.engine = engine
         self.get_presets = presets_getter
-        self._preset_index = -1  # current position in presets list
+        self._preset_index = -1
         self._running = False
-        self._device = None
+        self._knob_device = None
         self._thread = None
-        self._ws_broadcast = None  # optional: callable to broadcast state to WS clients
+        self._ws_broadcast = None
+        self._cycle_active = False  # for numpad key 1 toggle
 
     def set_ws_broadcast(self, fn):
-        """Set a function to call after knob actions to sync WebSocket clients."""
         self._ws_broadcast = fn
 
     def start(self):
-        """Start the knob listener thread."""
         if not HID_AVAILABLE:
-            print("  Knob: hidapi not installed (pip install hidapi)")
+            print("  HID: hidapi not installed (pip install hidapi)")
             return False
-
         self._running = True
         self._thread = threading.Thread(target=self._listen_loop, daemon=True)
         self._thread.start()
         return True
 
     def stop(self):
-        """Stop the knob listener."""
         self._running = False
         if self._thread:
             self._thread.join(timeout=2)
-        self._close_device()
+        self._close_all()
 
-    def _close_device(self):
-        if self._device:
+    def _close_all(self):
+        if self._knob_device:
             try:
-                self._device.close()
+                self._knob_device.close()
             except Exception:
                 pass
-            self._device = None
+        self._knob_device = None
 
-    def _open_device(self):
-        """Try to open the knob HID device. Returns True on success."""
-        self._close_device()
+    def _open_knob(self):
         try:
-            # Find the consumer control interface (usage_page 0x000c)
+            if self._knob_device:
+                self._knob_device.close()
+        except Exception:
+            pass
+        self._knob_device = None
+        try:
             target_path = None
-            for info in hid.enumerate(VENDOR_ID, PRODUCT_ID):
+            for info in hid.enumerate(KNOB_VID, KNOB_PID):
                 if info['usage_page'] == 0x000C or info['usage'] == 0x0002:
                     target_path = info['path']
                     break
-
             if not target_path:
-                # Fall back to any interface
-                for info in hid.enumerate(VENDOR_ID, PRODUCT_ID):
+                for info in hid.enumerate(KNOB_VID, KNOB_PID):
                     target_path = info['path']
                     break
-
             if not target_path:
                 return False
-
-            self._device = hid.device()
-            self._device.open_path(target_path)
-            self._device.set_nonblocking(True)
+            self._knob_device = hid.device()
+            self._knob_device.open_path(target_path)
+            self._knob_device.set_nonblocking(True)
             return True
         except Exception:
-            self._device = None
+            self._knob_device = None
             return False
 
     def _listen_loop(self):
-        """Main polling loop — runs in a background thread."""
-        connected = False
-        reconnect_interval = 3.0
+        knob_connected = False
         last_reconnect = 0
 
         while self._running:
-            # Try to connect if not connected
-            if not connected:
-                now = time.monotonic()
-                if now - last_reconnect > reconnect_interval:
-                    last_reconnect = now
-                    if self._open_device():
-                        connected = True
+            now = time.monotonic()
+
+            # Reconnect knob periodically
+            if now - last_reconnect > 3.0:
+                last_reconnect = now
+                if not knob_connected:
+                    if self._open_knob():
+                        knob_connected = True
                         print("  Knob: CONNECTED ✓ (Baseline Knob V2.1)")
-                    else:
-                        # Don't spam — just quietly retry
+
+            if not knob_connected:
+                time.sleep(0.5)
+                continue
+
+            # Poll knob
+            if self._knob_device:
+                try:
+                    data = self._knob_device.read(64)
+                    if data:
+                        self._handle_knob_report(data)
+                except Exception:
+                    knob_connected = False
+                    try:
+                        self._knob_device.close()
+                    except Exception:
                         pass
-                if not connected:
-                    time.sleep(0.5)
-                    continue
+                    self._knob_device = None
+                    print("  Knob: disconnected")
 
-            # Read HID reports
-            try:
-                data = self._device.read(64)
-                if data:
-                    self._handle_report(data)
-                else:
-                    time.sleep(0.005)  # ~200Hz polling when idle
-            except Exception:
-                # Device disconnected
-                connected = False
-                self._close_device()
-                print("  Knob: disconnected — will reconnect...")
-                time.sleep(1)
+            time.sleep(0.005)
 
-    def _handle_report(self, data):
-        """Parse a 3-byte consumer control HID report and dispatch action."""
+    def _handle_knob_report(self, data):
+        """Parse knob consumer control HID report."""
         if len(data) < 2:
             return
-
-        # Report format: [report_id, usage_code, ...]
-        # The knob sends: [0x04, code, 0x00] for press, [0x04, 0x00, 0x00] for release
         code = data[1]
-
         if code == 0x00:
-            return  # key release, ignore
+            return
 
         if code == VOL_UP:
             self._on_dial_cw()
@@ -171,6 +166,8 @@ class KnobController:
             self._on_left_button()
         elif code == PLAY_PAUSE:
             self._on_center_button()
+
+    # ─── Knob actions ────────────────────────────────────────────────────
 
     def _on_dial_cw(self):
         """Dial turned clockwise — increase speed."""

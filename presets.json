@@ -350,5 +350,117 @@
       "speed": 1,
       "audio_mode": "none"
     }
+  },
+  {
+    "id": "a4a75111",
+    "name": "Interference / Sunset / Ripple_cymatics / 50% / 1.0x",
+    "created": 1774750889.263606,
+    "preset": {
+      "pattern_idx": 0,
+      "palette_idx": 1,
+      "fx": "ripple_cymatics",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "speed": 1,
+      "audio_mode": "none"
+    }
+  },
+  {
+    "id": "0fb103bb",
+    "name": "Bonfire / Fire / Ripple_cymatics / 50% / 1.0x",
+    "created": 1774750956.984694,
+    "preset": {
+      "pattern_idx": 11,
+      "palette_idx": 4,
+      "fx": "ripple_cymatics",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "speed": 1,
+      "audio_mode": "none"
+    }
+  },
+  {
+    "id": "3d75693d",
+    "name": "Flow / Glacier / Ripple_cymatics / 50% / 1.0x",
+    "created": 1774751001.0091488,
+    "preset": {
+      "pattern_idx": 18,
+      "palette_idx": 9,
+      "fx": "ripple_cymatics",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "speed": 1,
+      "audio_mode": "none"
+    }
+  },
+  {
+    "id": "55c93a21",
+    "name": "Lava / Neon Gold / Ripple_shatter / 50% / 1.0x",
+    "created": 1774751090.7194161,
+    "preset": {
+      "pattern_idx": 8,
+      "palette_idx": 12,
+      "fx": "ripple_shatter",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "speed": 1,
+      "audio_mode": "none"
+    }
+  },
+  {
+    "id": "0312b993",
+    "name": "Nebula / Cotton Candy / Ripple_deep / 50% / 1.0x",
+    "created": 1774751201.896565,
+    "preset": {
+      "pattern_idx": 7,
+      "palette_idx": 18,
+      "fx": "ripple_deep",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "speed": 1,
+      "audio_mode": "none"
+    }
+  },
+  {
+    "id": "377e2ce8",
+    "name": "Bonfire / Laser Show / 50% / 1.0x",
+    "created": 1774751292.352403,
+    "preset": {
+      "pattern_idx": 11,
+      "palette_idx": 41,
+      "fx": "none",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "speed": 1,
+      "audio_mode": "none"
+    }
+  },
+  {
+    "id": "332dc6e3",
+    "name": "Bonfire / Molten Metal / Ripple_cymatics / 50% / 1.0x",
+    "created": 1774751308.3722901,
+    "preset": {
+      "pattern_idx": 11,
+      "palette_idx": 42,
+      "fx": "ripple_cymatics",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "speed": 1,
+      "audio_mode": "none"
+    }
+  },
+  {
+    "id": "14e0574c",
+    "name": "Tides / Aurora Borealis / Ripple_cymatics / 50% / 0.5x",
+    "created": 1774751419.166985,
+    "preset": {
+      "pattern_idx": 36,
+      "palette_idx": 36,
+      "fx": "ripple_cymatics",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "speed": 0.53,
+      "audio_mode": "none"
+    }
   }
 ]

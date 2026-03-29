@@ -26,27 +26,9 @@ class FXEngine:
         self._glow_accum = np.zeros((height, width, 3), dtype=np.float32)
         self._time = 0.0
 
-        # Liquid FX state
-        self._liquid_dye = np.zeros((height, width, 3), dtype=np.float32)
-
-        # Echo Rings FX state — list of active ring sources
-        # Each ring: (center_y, center_x, birth_time, strength)
-        self._echo_rings = []
-        self._echo_cooldown = np.zeros((height, width), dtype=np.float32)
-
         # Phosphor FX state
         self._phosphor_buffer = np.zeros((height, width, 3), dtype=np.float32)
         self._phosphor_age = np.zeros((height, width), dtype=np.float32)
-
-        # Smear FX state
-        self._smear_buffer = np.zeros((height, width, 3), dtype=np.float32)
-        self._motion_vx = np.zeros((height, width), dtype=np.float32)
-        self._motion_vy = np.zeros((height, width), dtype=np.float32)
-
-        # Fireflies FX state — list of particles
-        # Each: [y, x, vy, vx, r, g, b, life, max_life]
-        self._fireflies = []
-        self._firefly_buffer = np.zeros((height, width, 3), dtype=np.float32)
 
     def reset(self):
         """Clear all FX state buffers."""
@@ -57,16 +39,8 @@ class FXEngine:
         self._ripple_energy[:] = 0
         self._prev_frame = None
         self._glow_accum[:] = 0
-        self._liquid_dye[:] = 0
-        self._echo_rings = []
-        self._echo_cooldown[:] = 0
         self._phosphor_buffer[:] = 0
         self._phosphor_age[:] = 0
-        self._smear_buffer[:] = 0
-        self._motion_vx[:] = 0
-        self._motion_vy[:] = 0
-        self._fireflies = []
-        self._firefly_buffer[:] = 0
 
     def set_fx(self, fx_name):
         """Set the active FX by name, or None to disable."""
@@ -204,21 +178,38 @@ def fx_ripple(engine, frame, dt):
     h, w = engine.height, engine.width
     strength = 0.5 + engine.intensity * 2.5  # 0.5 to 3.0
 
-    # Inject energy from motion detection
+    # ── Energy injection: 3 continuous sources keep ripple alive forever ──
+
+    bright = f.max(axis=2)
+
+    # 1. Motion detection (big burst on pattern switch, smaller during animation)
     if engine._prev_frame is not None:
         diff = np.abs(f.mean(axis=2) - engine._prev_frame.astype(np.float32).mean(axis=2))
-        # Only inject where there's significant motion
-        motion_mask = diff > 15
+        motion_mask = diff > 10
         engine._ripple_buf1[motion_mask] += diff[motion_mask] * 0.08 * strength
 
-    # Also inject energy from bright pixels (animations "drop" into the water)
-    bright = f.max(axis=2)
-    hot_spots = bright > 150
-    engine._ripple_buf1[hot_spots] += (bright[hot_spots] / 255.0) * 0.03 * strength
+    # 2. Edge energy — where bright meets dark creates "surface tension".
+    #    Keeps ripple alive permanently along animation edges.
+    grad_bx = np.zeros((h, w), dtype=np.float32)
+    grad_by = np.zeros((h, w), dtype=np.float32)
+    grad_bx[:, 1:-1] = bright[:, 2:] - bright[:, :-2]
+    grad_by[1:-1, :] = bright[2:, :] - bright[:-2, :]
+    edge_energy = np.sqrt(grad_bx**2 + grad_by**2) / 255.0
+    # Gentler continuous injection (reduced from 0.12)
+    engine._ripple_buf1 += edge_energy * 0.04 * strength
+
+    # 3. Sparse random drops at bright areas
+    bright_ys, bright_xs = np.where(bright > 80)
+    if len(bright_ys) > 0:
+        num_drops = max(1, int(1 + engine.intensity * 2))  # 1-3 drops (was 3-8)
+        indices = np.random.choice(len(bright_ys), min(num_drops, len(bright_ys)), replace=False)
+        for idx in indices:
+            dy, dx = int(bright_ys[idx]), int(bright_xs[idx])
+            engine._ripple_buf1[dy, dx] += (0.2 + engine.intensity * 0.3) * strength
 
     # Propagate wave equation (vectorized for speed)
     # wave[y,x] = avg(neighbors) * 2 - prev[y,x], with damping
-    damping = 0.94 - engine.intensity * 0.04  # 0.94 to 0.90 (more intensity = more sustain)
+    damping = 0.96 - engine.intensity * 0.03  # 0.96 to 0.93 (higher = longer sustain)
     padded = np.pad(engine._ripple_buf1, 1, mode='edge')
     neighbors = (padded[:-2, 1:-1] + padded[2:, 1:-1] +
                  padded[1:-1, :-2] + padded[1:-1, 2:]) / 2.0
@@ -247,14 +238,15 @@ def fx_ripple(engine, frame, dt):
     # Sample from displaced positions
     result = f[src_y, src_x]
 
-    # Add bright edges on wavefronts (where gradient is steep)
+    # Brighten wavefront edges using the pixel's OWN color (preserves palette).
+    # Instead of adding flat white, scale the existing color brighter.
     edge_strength = np.sqrt(grad_x**2 + grad_y**2)
-    edge_boost = np.clip(edge_strength * 15 * strength, 0, 120)
-    result += edge_boost[:, :, np.newaxis]
+    edge_mult = 1.0 + np.clip(edge_strength * 8 * strength, 0, 2.5)
+    result *= edge_mult[:, :, np.newaxis]
 
-    # Subtle darkening in wave troughs
-    trough = np.clip(-ripple * 8 * strength, 0, 40)
-    result -= trough[:, :, np.newaxis]
+    # Darken wave troughs by scaling down (preserves hue, just dims)
+    trough_mult = 1.0 - np.clip(-ripple * 4 * strength, 0, 0.5)
+    result *= trough_mult[:, :, np.newaxis]
 
     return np.clip(result, 0, 255).astype(np.uint8)
 
@@ -599,28 +591,143 @@ def fx_fireflies(engine, frame, dt):
     return np.clip(result, 0, 255).astype(np.uint8)
 
 
+# ─── Ripple Variants ──────────────────────────────────────────────────────
+
+def _ripple_core(engine, frame, dt, damping, edge_mult_scale, trough_scale,
+                 inject_edge=0.04, inject_drops=1, drop_strength=0.2,
+                 disp_scale_base=1.0, motion_thresh=10):
+    """Shared ripple physics engine. Variants just tune parameters."""
+    f = frame.astype(np.float32)
+    h, w = engine.height, engine.width
+    strength = 0.5 + engine.intensity * 2.5
+
+    bright = f.max(axis=2)
+
+    # Motion injection
+    if engine._prev_frame is not None:
+        diff = np.abs(f.mean(axis=2) - engine._prev_frame.astype(np.float32).mean(axis=2))
+        motion_mask = diff > motion_thresh
+        engine._ripple_buf1[motion_mask] += diff[motion_mask] * 0.06 * strength
+
+    # Edge energy
+    grad_bx = np.zeros((h, w), dtype=np.float32)
+    grad_by = np.zeros((h, w), dtype=np.float32)
+    grad_bx[:, 1:-1] = bright[:, 2:] - bright[:, :-2]
+    grad_by[1:-1, :] = bright[2:, :] - bright[:-2, :]
+    edge_energy = np.sqrt(grad_bx**2 + grad_by**2) / 255.0
+    engine._ripple_buf1 += edge_energy * inject_edge * strength
+
+    # Random drops
+    bright_ys, bright_xs = np.where(bright > 80)
+    if len(bright_ys) > 0:
+        num = min(inject_drops, len(bright_ys))
+        indices = np.random.choice(len(bright_ys), num, replace=False)
+        for idx in indices:
+            dy, dx = int(bright_ys[idx]), int(bright_xs[idx])
+            engine._ripple_buf1[dy, dx] += drop_strength * strength
+
+    # Wave equation
+    padded = np.pad(engine._ripple_buf1, 1, mode='edge')
+    neighbors = (padded[:-2, 1:-1] + padded[2:, 1:-1] +
+                 padded[1:-1, :-2] + padded[1:-1, 2:]) / 2.0
+    engine._ripple_buf2 = (neighbors - engine._ripple_buf2) * damping
+    engine._ripple_buf1, engine._ripple_buf2 = engine._ripple_buf2, engine._ripple_buf1
+
+    ripple = engine._ripple_buf1
+
+    # Displacement
+    grad_x = np.zeros((h, w), dtype=np.float32)
+    grad_y = np.zeros((h, w), dtype=np.float32)
+    grad_x[:, 1:-1] = ripple[:, 2:] - ripple[:, :-2]
+    grad_y[1:-1, :] = ripple[2:, :] - ripple[:-2, :]
+
+    disp = disp_scale_base + engine.intensity * 3.0
+    yy, xx = np.meshgrid(np.arange(h), np.arange(w), indexing='ij')
+    src_x = np.clip((xx + grad_x * disp).astype(int), 0, w - 1)
+    src_y = np.clip((yy + grad_y * disp).astype(int), 0, h - 1)
+    result = f[src_y, src_x]
+
+    # Color-preserving edge brightening
+    edge_strength = np.sqrt(grad_x**2 + grad_y**2)
+    edge_m = 1.0 + np.clip(edge_strength * edge_mult_scale * strength, 0, 2.5)
+    result *= edge_m[:, :, np.newaxis]
+
+    # Color-preserving trough darkening
+    trough_m = 1.0 - np.clip(-ripple * trough_scale * strength, 0, 0.5)
+    result *= trough_m[:, :, np.newaxis]
+
+    return np.clip(result, 0, 255).astype(np.uint8)
+
+
+def fx_ripple_soft(engine, frame, dt):
+    """Soft Ripple — gentle, dreamy water surface with minimal distortion."""
+    return _ripple_core(engine, frame, dt,
+                        damping=0.97, edge_mult_scale=4, trough_scale=2,
+                        inject_edge=0.02, inject_drops=1, drop_strength=0.15,
+                        disp_scale_base=0.5)
+
+def fx_ripple_deep(engine, frame, dt):
+    """Deep Ripple — heavy, slow waves with strong displacement like deep water."""
+    return _ripple_core(engine, frame, dt,
+                        damping=0.98, edge_mult_scale=6, trough_scale=5,
+                        inject_edge=0.05, inject_drops=2, drop_strength=0.3,
+                        disp_scale_base=2.0)
+
+def fx_ripple_rain(engine, frame, dt):
+    """Rain Ripple — many small drops constantly hitting the surface."""
+    return _ripple_core(engine, frame, dt,
+                        damping=0.94, edge_mult_scale=5, trough_scale=3,
+                        inject_edge=0.03, inject_drops=6, drop_strength=0.4,
+                        disp_scale_base=1.0)
+
+def fx_ripple_glass(engine, frame, dt):
+    """Glass Ripple — frosted glass refraction with high displacement, minimal edge glow."""
+    return _ripple_core(engine, frame, dt,
+                        damping=0.95, edge_mult_scale=1, trough_scale=1,
+                        inject_edge=0.06, inject_drops=2, drop_strength=0.25,
+                        disp_scale_base=3.0)
+
+def fx_ripple_cymatics(engine, frame, dt):
+    """Cymatics Ripple — standing wave patterns with sustained resonance."""
+    return _ripple_core(engine, frame, dt,
+                        damping=0.985, edge_mult_scale=8, trough_scale=4,
+                        inject_edge=0.08, inject_drops=3, drop_strength=0.35,
+                        disp_scale_base=1.5)
+
+def fx_ripple_shatter(engine, frame, dt):
+    """Shatter Ripple — sharp, angular distortion like cracked glass."""
+    return _ripple_core(engine, frame, dt,
+                        damping=0.92, edge_mult_scale=12, trough_scale=6,
+                        inject_edge=0.03, inject_drops=1, drop_strength=0.5,
+                        disp_scale_base=2.5, motion_thresh=5)
+
+
 # ─── FX Registry ─────────────────────────────────────────────────────────────
 
 FX_REGISTRY = {
-    "glow":       fx_glow,
-    "trails":     fx_trails,
-    "ripple":     fx_ripple,
-    "liquid":     fx_liquid,
-    "echo_rings": fx_echo_rings,
-    "phosphor":   fx_phosphor,
-    "smear":      fx_smear,
-    "fireflies":  fx_fireflies,
+    "glow":            fx_glow,
+    "trails":          fx_trails,
+    "phosphor":        fx_phosphor,
+    "ripple":          fx_ripple,
+    "ripple_soft":     fx_ripple_soft,
+    "ripple_deep":     fx_ripple_deep,
+    "ripple_rain":     fx_ripple_rain,
+    "ripple_glass":    fx_ripple_glass,
+    "ripple_cymatics": fx_ripple_cymatics,
+    "ripple_shatter":  fx_ripple_shatter,
 }
 
 # Ordered list for UI display
 FX_LIST = [
-    {"key": "none",       "name": "None"},
-    {"key": "glow",       "name": "Glow"},
-    {"key": "trails",     "name": "Trails"},
-    {"key": "ripple",     "name": "Ripple"},
-    {"key": "liquid",     "name": "Liquid"},
-    {"key": "echo_rings", "name": "Echo Rings"},
-    {"key": "phosphor",   "name": "Phosphor"},
-    {"key": "smear",      "name": "Smear"},
-    {"key": "fireflies",  "name": "Fireflies"},
+    {"key": "none",            "name": "None"},
+    {"key": "glow",            "name": "Glow"},
+    {"key": "trails",          "name": "Trails"},
+    {"key": "phosphor",        "name": "Phosphor"},
+    {"key": "ripple",          "name": "Ripple"},
+    {"key": "ripple_soft",     "name": "Soft Ripple"},
+    {"key": "ripple_deep",     "name": "Deep Ripple"},
+    {"key": "ripple_rain",     "name": "Rain Ripple"},
+    {"key": "ripple_glass",    "name": "Glass Ripple"},
+    {"key": "ripple_cymatics", "name": "Cymatics Ripple"},
+    {"key": "ripple_shatter",  "name": "Shatter Ripple"},
 ]

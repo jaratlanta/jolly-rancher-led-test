@@ -291,6 +291,7 @@ class FrameEngine:
             "audio_mode": "audio" if self.audio.audio_on else "none",
             "audio_sensitivity": self.audio.sensitivity,
             "audio_enabled": self.audio.enabled,
+            "bpm": self.audio.get_state().get("bpm", 0),
         }
 
     # ─── Panel coordinates ─────────────────────────────────────────────────

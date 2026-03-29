@@ -28,23 +28,18 @@
     </div>
 
     <!-- U-Shape Preview (JR Panels mode) -->
-    <div class="ushape-container hidden" id="ushape-view">
-        <div class="ushape-top">
-            <div class="panel-wrap">
-                <div class="panel-label">Front</div>
-                <canvas id="front-canvas"></canvas>
-            </div>
+    <div class="stacked-panels hidden" id="ushape-view">
+        <div class="panel-wrap full-width">
+            <div class="panel-label">Front</div>
+            <canvas id="front-canvas"></canvas>
         </div>
-        <div class="ushape-bottom">
-            <div class="panel-wrap">
-                <div class="panel-label">Left Side</div>
-                <canvas id="left-canvas"></canvas>
-            </div>
-            <div class="ushape-gap"></div>
-            <div class="panel-wrap">
-                <div class="panel-label">Right Side</div>
-                <canvas id="right-canvas"></canvas>
-            </div>
+        <div class="panel-wrap full-width">
+            <div class="panel-label">Left Side</div>
+            <canvas id="left-canvas"></canvas>
+        </div>
+        <div class="panel-wrap full-width">
+            <div class="panel-label">Right Side</div>
+            <canvas id="right-canvas"></canvas>
         </div>
     </div>
 
@@ -59,23 +54,18 @@
             <div class="panel-label">Bull's Head</div>
             <canvas id="complete-bullhead-canvas"></canvas>
         </div>
-        <div class="complete-panels">
-            <div class="ushape-top">
-                <div class="panel-wrap">
-                    <div class="panel-label">Front</div>
-                    <canvas id="complete-front-canvas"></canvas>
-                </div>
+        <div class="stacked-panels">
+            <div class="panel-wrap full-width">
+                <div class="panel-label">Front</div>
+                <canvas id="complete-front-canvas"></canvas>
             </div>
-            <div class="ushape-bottom">
-                <div class="panel-wrap">
-                    <div class="panel-label">Left Side</div>
-                    <canvas id="complete-left-canvas"></canvas>
-                </div>
-                <div class="ushape-gap"></div>
-                <div class="panel-wrap">
-                    <div class="panel-label">Right Side</div>
-                    <canvas id="complete-right-canvas"></canvas>
-                </div>
+            <div class="panel-wrap full-width">
+                <div class="panel-label">Left Side</div>
+                <canvas id="complete-left-canvas"></canvas>
+            </div>
+            <div class="panel-wrap full-width">
+                <div class="panel-label">Right Side</div>
+                <canvas id="complete-right-canvas"></canvas>
             </div>
         </div>
     </div>
@@ -127,6 +117,7 @@
                 <div class="meter-bar"><div class="meter-fill" id="meter-bass"></div><span>Bass</span></div>
                 <div class="meter-bar"><div class="meter-fill" id="meter-mid"></div><span>Mid</span></div>
                 <div class="meter-bar"><div class="meter-fill" id="meter-treble"></div><span>Treble</span></div>
+                <div class="bpm-display" id="bpm-display">-- BPM</div>
             </div>
             <div class="slider-group">
                 <span class="slider-label">Sensitivity</span>

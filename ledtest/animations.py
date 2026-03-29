@@ -47,33 +47,59 @@ PALETTES = [
     {"name": "Solar Flair",    "colors": [(255, 255, 0), (255, 69, 0), (68, 17, 0)]},
     {"name": "Deep Sea 2",     "colors": [(0, 191, 255), (0, 0, 139), (5, 5, 16)]},
     {"name": "Galactic",       "colors": [(30, 144, 255), (255, 0, 255), (17, 0, 34)]},
+    # ── Multi-color holographic palettes (5-7 color stops) ──
+    {"name": "Holographic",    "colors": [(255, 0, 100), (255, 100, 0), (255, 255, 0), (0, 255, 100), (0, 100, 255), (150, 0, 255), (5, 0, 10)]},
+    {"name": "Oil Slick",      "colors": [(255, 0, 200), (0, 200, 255), (100, 255, 0), (255, 150, 0), (200, 0, 255), (0, 5, 15)]},
+    {"name": "Prism Light",    "colors": [(255, 255, 255), (255, 200, 200), (255, 100, 50), (255, 255, 0), (50, 255, 100), (50, 100, 255), (200, 50, 255), (10, 5, 15)]},
+    {"name": "Neon Rainbow",   "colors": [(255, 0, 60), (255, 150, 0), (200, 255, 0), (0, 255, 80), (0, 180, 255), (130, 0, 255), (0, 0, 0)]},
+    {"name": "Aurora Borealis","colors": [(180, 255, 200), (0, 255, 150), (0, 200, 255), (80, 0, 255), (200, 0, 150), (0, 80, 40), (0, 5, 10)]},
+    {"name": "Iridescent",     "colors": [(255, 220, 255), (200, 150, 255), (100, 200, 255), (150, 255, 200), (255, 255, 150), (255, 180, 200), (10, 5, 10)]},
+    {"name": "Chrome",         "colors": [(255, 255, 255), (180, 200, 220), (80, 100, 140), (200, 210, 230), (255, 255, 255), (40, 50, 70), (5, 5, 10)]},
+    {"name": "Bismuth",        "colors": [(255, 200, 50), (200, 100, 255), (0, 200, 200), (255, 50, 100), (100, 255, 50), (50, 0, 80), (5, 0, 5)]},
+    {"name": "Soap Bubble",    "colors": [(255, 200, 250), (200, 255, 200), (200, 220, 255), (255, 255, 200), (220, 200, 255), (180, 255, 240), (5, 5, 8)]},
+    {"name": "Laser Show",     "colors": [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (255, 0, 255), (0, 255, 255), (0, 0, 0)]},
+    {"name": "Molten Metal",   "colors": [(255, 255, 220), (255, 200, 50), (255, 80, 0), (200, 0, 50), (80, 0, 100), (20, 0, 40), (0, 0, 0)]},
+    {"name": "Deep Spectrum",  "colors": [(255, 0, 80), (200, 0, 200), (0, 0, 255), (0, 150, 200), (0, 200, 100), (150, 200, 0), (5, 0, 5)]},
 ]
 
 
 def palette_color(brightness, palette_idx):
     """Map a brightness value (0-255) to an RGB tuple using a palette.
 
-    Palette has 3 colors: [highlight, mid, shadow].
-    The palette sets the hue, and the brightness value scales the overall
-    intensity so that 0 = truly black (LEDs off).
+    Supports palettes with any number of color stops (3, 5, 7, etc.).
+    Colors are listed dark→bright: [shadow, ..., highlight].
+    Brightness 0 = black (LEDs off), 255 = brightest color in palette.
     """
     pal = PALETTES[palette_idx % len(PALETTES)]
     colors = pal["colors"]
     b = max(0.0, min(1.0, brightness / 255.0))
+    n = len(colors)
 
-    # Map brightness to palette color (hue selection)
-    if b <= 0.5:
-        t = b * 2.0
-        c0, c1 = colors[2], colors[1]
-    else:
-        t = (b - 0.5) * 2.0
-        c0, c1 = colors[1], colors[0]
+    if n < 2:
+        c = colors[0]
+        return (int(c[0] * b), int(c[1] * b), int(c[2] * b))
+
+    # Map b (0..1) across color stops.
+    # colors[0] = shadow (darkest), colors[-1] = highlight (brightest)
+    # Reverse so b=0 → shadow, b=1 → highlight
+    pos = b * (n - 1)
+    idx = int(pos)
+    t = pos - idx
+    if idx >= n - 1:
+        idx = n - 2
+        t = 1.0
+
+    # Interpolate between colors[idx] and colors[idx+1]
+    # Note: colors are ordered [highlight, mid, shadow] for 3-color palettes
+    # and [highlight, ..., shadow] for multi-color. We reverse to go dark→bright.
+    c0 = colors[n - 1 - idx]
+    c1 = colors[n - 2 - idx]
 
     r = c0[0] + (c1[0] - c0[0]) * t
     g = c0[1] + (c1[1] - c0[1]) * t
     b_ch = c0[2] + (c1[2] - c0[2]) * t
 
-    # Scale by brightness so 0 = black (LEDs fully off)
+    # Scale by brightness so 0 = truly black
     r = int(r * b)
     g = int(g * b)
     b_ch = int(b_ch * b)
@@ -184,8 +210,9 @@ def anim_tint(nx, ny, t, w, h):
     return int((math.sin(nx*5+t) * math.sin(ny*5+t*0.5) + 1) * 127)
 
 def anim_flux(nx, ny, t, w, h):
-    v = (math.sin(nx*2+t) + math.sin(ny*3-t) + math.sin(nx+ny+t)) / 3 * 255
-    return int(max(0, min(255, v)))
+    # Offset each wave so they don't cancel → stays visible throughout cycle
+    v = (math.sin(nx*3+t*1.5) + math.sin(ny*4-t*1.2) + math.sin((nx+ny)*2.5+t*0.8) + 3) / 6
+    return int(max(0, min(255, v * 255)))
 
 def anim_top(nx, ny, t, w, h):
     return int(max(0, min(255, (1 - ny - math.sin(t)*0.2) * 255)))
@@ -317,7 +344,9 @@ def anim_ghosting(nx, ny, t, w, h):
 
 def anim_sun(nx, ny, t, w, h):
     d = math.sqrt((nx-0.5)**2 + (ny-0.5)**2)
-    return int(max(0, (1 - d*4) * 255 * max(0, math.sin(t))))
+    # Breathing pulse: 0.3 to 1.0 (never goes dark)
+    pulse = 0.3 + 0.7 * (math.sin(t * 1.5) + 1) / 2
+    return int(max(0, (1 - d * 3) * 255 * pulse))
 
 def anim_block(nx, ny, t, w, h):
     return 255 if (int(nx*20) + int(ny*20)) % 2 == 0 else 20
@@ -629,6 +658,507 @@ def audio_wave3(nx, ny, t, w, h, bass, mid, treble):
     return int(math.sin(nx*10 + math.sin(ny*10 + t) * distort) * 127 + 127)
 
 
+# ─── Cymatics Patterns ────────────────────────────────────────────────────
+# Based on real physics: Chladni plates, drum modes, standing waves.
+# These produce geometric nodal-line patterns like real cymatics on vibrating surfaces.
+
+def _bessel_j0_approx(x):
+    """Fast approximation of Bessel J0 for cymatics. Accurate enough for visuals."""
+    ax = abs(x)
+    if ax < 3.0:
+        y = x * x
+        return 1.0 - y*(0.25 - y*(0.015625 - y*0.000434))
+    else:
+        y = 3.0 / ax
+        return math.sqrt(0.6366 / ax) * math.cos(ax - 0.785 - y*(0.0156 + y*0.00017))
+
+def _bessel_j1_approx(x):
+    """Fast approximation of Bessel J1."""
+    ax = abs(x)
+    sign = 1.0 if x >= 0 else -1.0
+    if ax < 3.0:
+        y = x * x
+        return sign * ax * 0.5 * (1.0 - y*(0.125 - y*(0.005208 - y*0.0001)))
+    else:
+        y = 3.0 / ax
+        return sign * math.sqrt(0.6366 / ax) * math.cos(ax - 2.356 - y*(0.0469 + y*0.00039))
+
+# ── 1. Chladni ── Square plate nodal lines: sin(n*x)*sin(m*y) ± sin(m*x)*sin(n*y) = 0
+# The nodal lines (where brightness=0) form the geometric patterns.
+# n,m integers slowly morph over time to transition between plate modes.
+
+def anim_chladni(nx, ny, t, w, h):
+    """Chladni plate — square nodal patterns that morph between modes."""
+    # Cycle through mode pairs over time
+    phase = t * 0.15
+    n = 2 + math.sin(phase) * 2          # ranges 0-4
+    m = 3 + math.cos(phase * 0.7) * 2    # ranges 1-5
+    # Second mode pair for blending
+    n2 = 3 + math.sin(phase * 0.6 + 1.5) * 2
+    m2 = 2 + math.cos(phase * 0.4 + 0.8) * 2
+
+    blend = (math.sin(t * 0.3) + 1) / 2  # 0..1 crossfade between two modes
+
+    x, y = nx * math.pi, ny * math.pi
+    v1 = math.sin(n*x) * math.sin(m*y) - math.sin(m*x) * math.sin(n*y)
+    v2 = math.sin(n2*x) * math.sin(m2*y) - math.sin(m2*x) * math.sin(n2*y)
+    v = v1 * (1-blend) + v2 * blend
+
+    # Nodal lines are at v≈0; bright away from nodes
+    brightness = abs(v)
+    # Apply contrast curve to sharpen the nodal lines
+    brightness = min(1.0, brightness * 2.5)
+    brightness = brightness ** 0.6  # gamma to soften slightly
+    return int(brightness * 255)
+
+def audio_chladni(nx, ny, t, w, h, bass, mid, treble):
+    """Chladni — bass sets the mode number (higher bass = more complex pattern)."""
+    n = 1.5 + bass * 5    # bass controls complexity
+    m = 2.0 + mid * 4     # mid controls second mode
+    x, y = nx * math.pi, ny * math.pi
+    v = math.sin(n*x) * math.sin(m*y) - math.sin(m*x) * math.sin(n*y)
+    brightness = min(1.0, abs(v) * 2.5) ** 0.6
+    return int(brightness * 255)
+
+# ── 2. Resonance ── Circular drum modes using Bessel functions: J_n(kr) * cos(nθ)
+# Creates the mandala-like circular patterns from the reference images.
+
+def anim_resonance(nx, ny, t, w, h):
+    """Resonance — circular mandala patterns from drum modes."""
+    dx, dy = nx - 0.5, ny - 0.5
+    r = math.sqrt(dx*dx + dy*dy) * 2  # 0..~1.4
+    theta = math.atan2(dy, dx)
+
+    # Slowly cycle between angular modes
+    n_mode = 3 + math.sin(t * 0.2) * 3  # ranges 0-6
+
+    # Radial frequency also shifts
+    k = 6 + math.sin(t * 0.15) * 3      # ranges 3-9
+
+    # Bessel-like radial * angular
+    radial = _bessel_j0_approx(k * r * math.pi)
+    angular = math.cos(n_mode * theta + t * 0.5)
+    v = radial * angular
+
+    brightness = min(1.0, abs(v) * 2.0) ** 0.7
+    return int(brightness * 255)
+
+def audio_resonance(nx, ny, t, w, h, bass, mid, treble):
+    """Resonance — bass controls radial frequency, treble controls angular mode."""
+    dx, dy = nx - 0.5, ny - 0.5
+    r = math.sqrt(dx*dx + dy*dy) * 2
+    theta = math.atan2(dy, dx)
+    n_mode = 2 + treble * 8    # treble = more angular divisions
+    k = 4 + bass * 10          # bass = tighter radial rings
+    radial = _bessel_j0_approx(k * r * math.pi)
+    angular = math.cos(n_mode * theta)
+    brightness = min(1.0, abs(radial * angular) * 2.0) ** 0.7
+    return int(brightness * 255)
+
+# ── 3. Standing Wave ── Concentric rings from constructive/destructive interference
+# Like the Mercury Tone image — clean concentric circles with varying spacing.
+
+def anim_standing(nx, ny, t, w, h):
+    """Standing Wave — concentric interference rings that breathe."""
+    dx, dy = nx - 0.5, ny - 0.5
+    r = math.sqrt(dx*dx + dy*dy)
+
+    # Two wave sources at slightly different frequencies create standing pattern
+    freq1 = 12 + math.sin(t * 0.2) * 4
+    freq2 = 14 + math.cos(t * 0.17) * 3
+    wave1 = math.sin(r * freq1 * math.pi)
+    wave2 = math.sin(r * freq2 * math.pi + t * 0.3)
+
+    v = (wave1 + wave2) / 2
+    # Sharpen rings
+    brightness = (v + 1) / 2
+    brightness = max(0, min(1, brightness))
+    brightness = brightness ** 0.5  # boost contrast
+    return int(brightness * 255)
+
+def audio_standing(nx, ny, t, w, h, bass, mid, treble):
+    """Standing Wave — bass controls ring spacing, mid shifts phase."""
+    dx, dy = nx - 0.5, ny - 0.5
+    r = math.sqrt(dx*dx + dy*dy)
+    freq = 8 + bass * 20    # bass = more/fewer rings
+    phase = mid * math.pi * 2
+    v = math.sin(r * freq * math.pi + phase)
+    brightness = max(0, min(1, (v + 1) / 2)) ** 0.5
+    return int(brightness * 255)
+
+# ── 4. Harmonics ── Multiple frequency superposition → complex flower patterns
+# Like Moon siderical — flower/mandala from summing several angular harmonics.
+
+def anim_harmonics(nx, ny, t, w, h):
+    """Harmonics — superimposed frequencies create flower/mandala patterns."""
+    dx, dy = nx - 0.5, ny - 0.5
+    r = math.sqrt(dx*dx + dy*dy) * 2
+    theta = math.atan2(dy, dx)
+
+    # Sum 4 harmonics with slowly drifting parameters
+    v = 0
+    for i in range(4):
+        n = 2 + i + math.sin(t * (0.1 + i * 0.07)) * 1.5
+        k = 3 + i * 2 + math.cos(t * (0.08 + i * 0.05)) * 2
+        v += math.sin(n * theta + t * 0.2 * (i+1)) * _bessel_j0_approx(k * r)
+
+    v /= 4
+    brightness = min(1.0, abs(v) * 3.0) ** 0.6
+    return int(brightness * 255)
+
+def audio_harmonics(nx, ny, t, w, h, bass, mid, treble):
+    """Harmonics — each frequency band controls a different harmonic."""
+    dx, dy = nx - 0.5, ny - 0.5
+    r = math.sqrt(dx*dx + dy*dy) * 2
+    theta = math.atan2(dy, dx)
+    # Bass = fundamental, mid = 2nd harmonic, treble = 3rd+4th
+    v = (math.sin(3*theta) * _bessel_j0_approx(5*r) * bass +
+         math.sin(5*theta) * _bessel_j0_approx(8*r) * mid +
+         math.sin(7*theta) * _bessel_j0_approx(11*r) * treble +
+         math.sin(9*theta) * _bessel_j0_approx(14*r) * treble * 0.5)
+    v /= max(0.01, bass + mid + treble + 0.01)
+    brightness = min(1.0, abs(v) * 3.0) ** 0.6
+    return int(brightness * 255)
+
+# ── 5. Interference ── Two point sources creating ripple overlap → cell divisions
+# Like the Earth (day) image — organic cell-like boundaries.
+
+def anim_cymatic_interference(nx, ny, t, w, h):
+    """Interference cells — two oscillating point sources create cell divisions."""
+    # Two source points that orbit slowly
+    s1x = 0.35 + math.sin(t * 0.3) * 0.12
+    s1y = 0.5 + math.cos(t * 0.25) * 0.12
+    s2x = 0.65 + math.sin(t * 0.35 + 1) * 0.12
+    s2y = 0.5 + math.cos(t * 0.3 + 1.5) * 0.12
+
+    d1 = math.sqrt((nx - s1x)**2 + (ny - s1y)**2)
+    d2 = math.sqrt((nx - s2x)**2 + (ny - s2y)**2)
+
+    freq = 18 + math.sin(t * 0.1) * 5
+    wave1 = math.sin(d1 * freq * math.pi + t)
+    wave2 = math.sin(d2 * freq * math.pi - t * 0.5)
+
+    # Interference pattern
+    v = (wave1 + wave2) / 2
+    brightness = (v + 1) / 2
+    # Sharpen cell boundaries
+    brightness = brightness ** 1.5
+    return int(brightness * 255)
+
+def audio_cymatic_interference(nx, ny, t, w, h, bass, mid, treble):
+    """Interference cells — bass controls frequency, sources pulse with treble."""
+    s1x, s1y = 0.35, 0.5
+    s2x, s2y = 0.65, 0.5
+    d1 = math.sqrt((nx - s1x)**2 + (ny - s1y)**2)
+    d2 = math.sqrt((nx - s2x)**2 + (ny - s2y)**2)
+    freq = 10 + bass * 25   # bass = more/fewer cells
+    wave1 = math.sin(d1 * freq * math.pi)
+    wave2 = math.sin(d2 * freq * math.pi)
+    v = (wave1 + wave2) / 2
+    brightness = max(0, min(1, (v + 1) / 2)) ** 1.5
+    return int(brightness * 255)
+
+# ── 6. Cymatic Bloom ── Rotating flower pattern from angular harmonics + radial decay
+# Like the Sirius period image — ornate rotating mandala with radial glow.
+
+def anim_cymatic_bloom(nx, ny, t, w, h):
+    """Cymatic Bloom — ornate rotating mandala with radial glow."""
+    dx, dy = nx - 0.5, ny - 0.5
+    r = math.sqrt(dx*dx + dy*dy) * 2
+    theta = math.atan2(dy, dx)
+
+    # Multi-petal rotating flower
+    petals = 6 + math.sin(t * 0.1) * 2  # 4-8 petals
+    rot = t * 0.3
+
+    # Petal shape: angular modulation * radial envelope
+    angular = (math.cos(petals * (theta + rot)) + 1) / 2
+    # Inner ring modulation
+    inner = (math.cos(petals * 2 * (theta - rot * 0.7) + math.pi/4) + 1) / 2
+
+    # Radial envelope — bloom from center, fade at edges
+    radial = max(0, 1.0 - r * 1.2)
+    radial_ring = (math.sin(r * 8 + t * 0.5) + 1) / 2
+
+    # Combine layers
+    v = (angular * 0.5 + inner * 0.3 + radial_ring * 0.2) * radial
+    # Add bright center
+    center_glow = max(0, 1.0 - r * 4) ** 2
+    v = v * 0.8 + center_glow * 0.2
+
+    brightness = min(1.0, v * 2.5)
+    return int(brightness * 255)
+
+def audio_cymatic_bloom(nx, ny, t, w, h, bass, mid, treble):
+    """Cymatic Bloom — bass controls petal count, treble controls rotation."""
+    dx, dy = nx - 0.5, ny - 0.5
+    r = math.sqrt(dx*dx + dy*dy) * 2
+    theta = math.atan2(dy, dx)
+    petals = 3 + bass * 8        # bass = more petals
+    rot = treble * math.pi * 2   # treble rotates the pattern
+    angular = (math.cos(petals * (theta + rot)) + 1) / 2
+    inner = (math.cos(petals * 2 * (theta - rot * 0.5)) + 1) / 2
+    radial = max(0, 1.0 - r * 1.2)
+    radial_ring = (math.sin(r * (6 + mid * 10)) + 1) / 2
+    v = (angular * 0.5 + inner * 0.3 + radial_ring * 0.2) * radial
+    center_glow = max(0, 1.0 - r * 4) ** 2
+    v = v * 0.8 + center_glow * 0.2
+    brightness = min(1.0, v * 2.5)
+    return int(brightness * 255)
+
+
+# ── 7. Cymatic Pulse ── Radial rings that pulse from center like a heartbeat
+def anim_cymatic_pulse(nx, ny, t, w, h):
+    dx, dy = nx - 0.5, ny - 0.5
+    r = math.sqrt(dx*dx + dy*dy) * 2
+    # Rings emanate from center with time-varying spacing
+    freq = 10 + math.sin(t * 0.5) * 4
+    phase = t * 3  # rings expand outward
+    v = math.sin(r * freq - phase)
+    # Envelope: fade at edges
+    env = max(0, 1.0 - r * 0.8)
+    brightness = max(0, min(1, (v + 1) / 2 * env)) ** 0.7
+    return int(brightness * 255)
+
+def audio_cymatic_pulse(nx, ny, t, w, h, bass, mid, treble):
+    dx, dy = nx - 0.5, ny - 0.5
+    r = math.sqrt(dx*dx + dy*dy) * 2
+    freq = 6 + bass * 18
+    v = math.sin(r * freq)
+    env = max(0, 1.0 - r * 0.8)
+    brightness = max(0, min(1, (v + 1) / 2 * env)) ** 0.7
+    return int(brightness * 255)
+
+# ── 8. Cymatic Web ── Spider web from intersecting radial + angular standing waves
+def anim_cymatic_web(nx, ny, t, w, h):
+    dx, dy = nx - 0.5, ny - 0.5
+    r = math.sqrt(dx*dx + dy*dy) * 2
+    theta = math.atan2(dy, dx)
+    spokes = 8 + math.sin(t * 0.15) * 3
+    radial = math.sin(r * 12 + t * 0.5)
+    angular = math.sin(spokes * theta + t * 0.2)
+    # Web = intersection of radial rings and angular spokes
+    v = radial * 0.5 + angular * 0.5
+    env = max(0, 1.0 - r * 0.7)
+    brightness = max(0, min(1, (v + 1) / 2)) * env
+    return int(brightness * 255)
+
+def audio_cymatic_web(nx, ny, t, w, h, bass, mid, treble):
+    dx, dy = nx - 0.5, ny - 0.5
+    r = math.sqrt(dx*dx + dy*dy) * 2
+    theta = math.atan2(dy, dx)
+    spokes = 4 + bass * 12
+    radial = math.sin(r * (8 + mid * 15))
+    angular = math.sin(spokes * theta)
+    v = radial * 0.5 + angular * 0.5
+    env = max(0, 1.0 - r * 0.7)
+    brightness = max(0, min(1, (v + 1) / 2)) * env
+    return int(brightness * 255)
+
+# ── 9. Cymatic Lotus ── Higher-order Bessel modes → lotus flower
+def anim_cymatic_lotus(nx, ny, t, w, h):
+    dx, dy = nx - 0.5, ny - 0.5
+    r = math.sqrt(dx*dx + dy*dy) * 2
+    theta = math.atan2(dy, dx)
+    n = 5 + math.sin(t * 0.12) * 2
+    # Layered petals using J0 at different radial frequencies
+    layer1 = _bessel_j0_approx(r * 8) * math.cos(n * theta + t * 0.3)
+    layer2 = _bessel_j0_approx(r * 14) * math.cos((n+2) * theta - t * 0.2)
+    v = (layer1 + layer2) / 2
+    brightness = min(1.0, abs(v) * 3.0) ** 0.5
+    return int(brightness * 255)
+
+def audio_cymatic_lotus(nx, ny, t, w, h, bass, mid, treble):
+    dx, dy = nx - 0.5, ny - 0.5
+    r = math.sqrt(dx*dx + dy*dy) * 2
+    theta = math.atan2(dy, dx)
+    n = 3 + bass * 8
+    layer1 = _bessel_j0_approx(r * (6 + mid * 12)) * math.cos(n * theta)
+    layer2 = _bessel_j0_approx(r * (10 + treble * 10)) * math.cos((n+2) * theta)
+    v = (layer1 + layer2) / 2
+    brightness = min(1.0, abs(v) * 3.0) ** 0.5
+    return int(brightness * 255)
+
+# ── 10. Cymatic Fractal ── Nested circular patterns at different scales
+def anim_cymatic_fractal(nx, ny, t, w, h):
+    dx, dy = nx - 0.5, ny - 0.5
+    r = math.sqrt(dx*dx + dy*dy) * 2
+    theta = math.atan2(dy, dx)
+    v = 0
+    for octave in range(4):
+        scale = 2 ** octave
+        freq = (4 + octave * 3) + math.sin(t * (0.1 + octave * 0.05)) * 2
+        n_ang = 3 + octave * 2
+        v += _bessel_j0_approx(r * freq * scale * 0.5) * math.cos(n_ang * theta + t * 0.2 * scale) / scale
+    brightness = min(1.0, abs(v) * 4.0) ** 0.6
+    return int(brightness * 255)
+
+def audio_cymatic_fractal(nx, ny, t, w, h, bass, mid, treble):
+    dx, dy = nx - 0.5, ny - 0.5
+    r = math.sqrt(dx*dx + dy*dy) * 2
+    theta = math.atan2(dy, dx)
+    bands = [bass, mid, treble, (bass+treble)/2]
+    v = 0
+    for octave in range(4):
+        scale = 2 ** octave
+        freq = 4 + bands[octave] * 15
+        n_ang = 3 + octave * 2
+        v += _bessel_j0_approx(r * freq * scale * 0.5) * math.cos(n_ang * theta) / scale
+    brightness = min(1.0, abs(v) * 4.0) ** 0.6
+    return int(brightness * 255)
+
+# ── 11. Cymatic Vortex ── Spiral standing wave (rotating nodal lines)
+def anim_cymatic_vortex(nx, ny, t, w, h):
+    dx, dy = nx - 0.5, ny - 0.5
+    r = math.sqrt(dx*dx + dy*dy) * 2
+    theta = math.atan2(dy, dx)
+    # Spiral: r and theta coupled
+    spiral = math.sin(r * 10 - theta * 3 + t * 2)
+    radial = _bessel_j0_approx(r * 8 + t * 0.5)
+    v = spiral * 0.6 + radial * 0.4
+    env = max(0, 1.0 - r * 0.6)
+    brightness = max(0, min(1, (v + 1) / 2 * env))
+    return int(brightness * 255)
+
+def audio_cymatic_vortex(nx, ny, t, w, h, bass, mid, treble):
+    dx, dy = nx - 0.5, ny - 0.5
+    r = math.sqrt(dx*dx + dy*dy) * 2
+    theta = math.atan2(dy, dx)
+    spiral = math.sin(r * (6 + bass * 15) - theta * (2 + treble * 5))
+    radial = _bessel_j0_approx(r * (5 + mid * 10))
+    v = spiral * 0.6 + radial * 0.4
+    env = max(0, 1.0 - r * 0.6)
+    brightness = max(0, min(1, (v + 1) / 2 * env))
+    return int(brightness * 255)
+
+# ── 12. Cymatic Grid ── Rectangular plate modes (square cymatics)
+def anim_cymatic_grid(nx, ny, t, w, h):
+    # Two rectangular standing wave modes superimposed
+    m1, n1 = 3 + math.sin(t * 0.2) * 2, 4 + math.cos(t * 0.17) * 2
+    m2, n2 = 5 + math.sin(t * 0.15) * 2, 3 + math.cos(t * 0.22) * 2
+    v1 = math.sin(m1 * nx * math.pi) * math.sin(n1 * ny * math.pi)
+    v2 = math.cos(m2 * nx * math.pi) * math.cos(n2 * ny * math.pi)
+    v = v1 * 0.6 + v2 * 0.4
+    brightness = min(1.0, abs(v) * 2.5) ** 0.6
+    return int(brightness * 255)
+
+def audio_cymatic_grid(nx, ny, t, w, h, bass, mid, treble):
+    m = 2 + bass * 6
+    n = 2 + mid * 6
+    v1 = math.sin(m * nx * math.pi) * math.sin(n * ny * math.pi)
+    v2 = math.cos((m+1) * nx * math.pi) * math.cos((n+1) * ny * math.pi)
+    v = v1 * 0.6 + v2 * 0.4
+    brightness = min(1.0, abs(v) * 2.5) ** 0.6
+    return int(brightness * 255)
+
+# ── 13. Cymatic Star ── Star/pentagram patterns from angular harmonics
+def anim_cymatic_star(nx, ny, t, w, h):
+    dx, dy = nx - 0.5, ny - 0.5
+    r = math.sqrt(dx*dx + dy*dy) * 2
+    theta = math.atan2(dy, dx)
+    points = 5 + math.sin(t * 0.1) * 2  # 3-7 point star
+    # Star shape: angular modulation with sharp peaks
+    star = abs(math.cos(points * theta / 2 + t * 0.4))
+    star = star ** 0.4  # sharpen the points
+    radial = _bessel_j0_approx(r * 10 + t * 0.3)
+    v = star * radial
+    env = max(0, 1.0 - r * 0.9)
+    brightness = min(1.0, abs(v) * 2.5) * env
+    return int(brightness * 255)
+
+def audio_cymatic_star(nx, ny, t, w, h, bass, mid, treble):
+    dx, dy = nx - 0.5, ny - 0.5
+    r = math.sqrt(dx*dx + dy*dy) * 2
+    theta = math.atan2(dy, dx)
+    points = 3 + bass * 6
+    star = abs(math.cos(points * theta / 2)) ** 0.4
+    radial = _bessel_j0_approx(r * (6 + mid * 12))
+    env = max(0, 1.0 - r * 0.9)
+    brightness = min(1.0, abs(star * radial) * 2.5) * env
+    return int(brightness * 255)
+
+# ── 14. Cymatic Ripple ── Multiple point sources with interference
+def anim_cymatic_ripple(nx, ny, t, w, h):
+    v = 0
+    # 3 sources orbiting center
+    for i in range(3):
+        angle = t * 0.3 + i * math.pi * 2 / 3
+        sx = 0.5 + math.cos(angle) * 0.2
+        sy = 0.5 + math.sin(angle) * 0.2
+        d = math.sqrt((nx - sx)**2 + (ny - sy)**2)
+        freq = 15 + math.sin(t * 0.1 + i) * 3
+        v += math.sin(d * freq * math.pi - t * 2) / 3
+    brightness = (v + 1) / 2
+    brightness = max(0, min(1, brightness)) ** 0.8
+    return int(brightness * 255)
+
+def audio_cymatic_ripple(nx, ny, t, w, h, bass, mid, treble):
+    v = 0
+    for i in range(3):
+        angle = i * math.pi * 2 / 3
+        sx = 0.5 + math.cos(angle) * 0.2
+        sy = 0.5 + math.sin(angle) * 0.2
+        d = math.sqrt((nx - sx)**2 + (ny - sy)**2)
+        freq = 8 + bass * 20
+        v += math.sin(d * freq * math.pi) / 3
+    brightness = max(0, min(1, (v + 1) / 2)) ** 0.8
+    return int(brightness * 255)
+
+# ── 15. Cymatic Kaleidoscope ── Angular symmetry with radial modulation
+def anim_cymatic_kaleidoscope(nx, ny, t, w, h):
+    dx, dy = nx - 0.5, ny - 0.5
+    r = math.sqrt(dx*dx + dy*dy) * 2
+    theta = math.atan2(dy, dx)
+    # Fold theta into a symmetry sector
+    segments = 6 + math.sin(t * 0.08) * 2
+    folded = abs(((theta / math.pi + 1) * segments / 2) % 2 - 1)
+    # Pattern within sector
+    inner = math.sin(folded * 8 + r * 10 + t)
+    radial = math.cos(r * 6 - t * 0.8)
+    v = inner * 0.6 + radial * 0.4
+    env = max(0, 1.0 - r * 0.7)
+    brightness = max(0, min(1, (v + 1) / 2)) * env
+    return int(brightness * 255)
+
+def audio_cymatic_kaleidoscope(nx, ny, t, w, h, bass, mid, treble):
+    dx, dy = nx - 0.5, ny - 0.5
+    r = math.sqrt(dx*dx + dy*dy) * 2
+    theta = math.atan2(dy, dx)
+    segments = 4 + bass * 8
+    folded = abs(((theta / math.pi + 1) * segments / 2) % 2 - 1)
+    inner = math.sin(folded * (5 + mid * 10) + r * (6 + treble * 10))
+    radial = math.cos(r * (4 + bass * 8))
+    v = inner * 0.6 + radial * 0.4
+    env = max(0, 1.0 - r * 0.7)
+    brightness = max(0, min(1, (v + 1) / 2)) * env
+    return int(brightness * 255)
+
+# ── 16. Cymatic Sand ── Particles accumulate at nodal lines (Chladni sand)
+def anim_cymatic_sand(nx, ny, t, w, h):
+    # Chladni pattern but inverted — bright at nodal lines (where sand collects)
+    phase = t * 0.12
+    n = 3 + math.sin(phase) * 2
+    m = 4 + math.cos(phase * 0.7) * 2
+    x, y = nx * math.pi, ny * math.pi
+    v = math.sin(n*x) * math.sin(m*y) - math.sin(m*x) * math.sin(n*y)
+    # Invert: nodal lines (v≈0) are BRIGHT (sand collects there)
+    closeness = max(0, 1.0 - abs(v) * 4)
+    # Add slight granularity (sand texture)
+    grain = 0.85 + random.random() * 0.15
+    brightness = closeness * grain
+    return int(brightness * 255)
+
+def audio_cymatic_sand(nx, ny, t, w, h, bass, mid, treble):
+    n = 2 + bass * 6
+    m = 3 + mid * 5
+    x, y = nx * math.pi, ny * math.pi
+    v = math.sin(n*x) * math.sin(m*y) - math.sin(m*x) * math.sin(n*y)
+    closeness = max(0, 1.0 - abs(v) * 4)
+    grain = 0.85 + random.random() * 0.15
+    brightness = closeness * grain
+    return int(brightness * 255)
+
+
 # ─── Pattern Registry ──────────────────────────────────────────────────────
 # Each pattern has: name, default fn (auto-movement), audio_fn (sound-driven)
 # Backward compat: ANIMATIONS is an alias for PATTERNS
@@ -672,6 +1202,23 @@ PATTERNS = [
     {"name": "Radiate",      "fn": anim_sun,       "audio_fn": audio_sun},
     {"name": "Tides",        "fn": anim_drift,     "audio_fn": audio_drift},
     {"name": "Mirage",       "fn": anim_wave3,     "audio_fn": audio_wave3},
+    # ── Cymatics ──
+    {"name": "Chladni",      "fn": anim_chladni,            "audio_fn": audio_chladni},
+    {"name": "Resonance",    "fn": anim_resonance,          "audio_fn": audio_resonance},
+    {"name": "Standing Wave","fn": anim_standing,            "audio_fn": audio_standing},
+    {"name": "Harmonics",    "fn": anim_harmonics,           "audio_fn": audio_harmonics},
+    {"name": "Cells",        "fn": anim_cymatic_interference,"audio_fn": audio_cymatic_interference},
+    {"name": "Bloom",        "fn": anim_cymatic_bloom,       "audio_fn": audio_cymatic_bloom},
+    {"name": "Pulse Rings", "fn": anim_cymatic_pulse,       "audio_fn": audio_cymatic_pulse},
+    {"name": "Web",         "fn": anim_cymatic_web,         "audio_fn": audio_cymatic_web},
+    {"name": "Lotus",       "fn": anim_cymatic_lotus,       "audio_fn": audio_cymatic_lotus},
+    {"name": "Fractal",     "fn": anim_cymatic_fractal,     "audio_fn": audio_cymatic_fractal},
+    {"name": "Vortex 2",    "fn": anim_cymatic_vortex,      "audio_fn": audio_cymatic_vortex},
+    {"name": "Grid",        "fn": anim_cymatic_grid,        "audio_fn": audio_cymatic_grid},
+    {"name": "Star",        "fn": anim_cymatic_star,        "audio_fn": audio_cymatic_star},
+    {"name": "Multi Ripple","fn": anim_cymatic_ripple,      "audio_fn": audio_cymatic_ripple},
+    {"name": "Kaleidoscope","fn": anim_cymatic_kaleidoscope,"audio_fn": audio_cymatic_kaleidoscope},
+    {"name": "Sand",        "fn": anim_cymatic_sand,        "audio_fn": audio_cymatic_sand},
 ]
 
 # Backward compatibility alias

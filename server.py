@@ -150,6 +150,8 @@ async def websocket_endpoint(ws: WebSocket):
                 engine.update_audio_data(
                     data.get("bass", 0), data.get("mid", 0), data.get("treble", 0)
                 )
+                if data.get("beat"):
+                    engine.audio.on_beat(data.get("bpm", 0))
                 continue  # Skip state broadcast for high-frequency audio data
             elif cmd == "set_model":
                 engine.reconfigure(data["key"])
