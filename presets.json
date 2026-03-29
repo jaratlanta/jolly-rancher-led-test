@@ -1,0 +1,354 @@
+[
+  {
+    "id": "45f0097d",
+    "name": "Bonfire / Cyber Forest / 50% / 1.0x",
+    "created": 1774302071.344739,
+    "preset": {
+      "animation_idx": 11,
+      "palette_idx": 25,
+      "fx": "none",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "speed": 1
+    }
+  },
+  {
+    "id": "594a8851",
+    "name": "Falling / Forest / Trails / 50% / 1.0x",
+    "created": 1774302104.939753,
+    "preset": {
+      "animation_idx": 16,
+      "palette_idx": 16,
+      "fx": "trails",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "speed": 1
+    }
+  },
+  {
+    "id": "610321f2",
+    "name": "Prism2 / Citrus / Trails / 50% / 1.0x",
+    "created": 1774302113.911819,
+    "preset": {
+      "animation_idx": 33,
+      "palette_idx": 21,
+      "fx": "trails",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "speed": 1
+    }
+  },
+  {
+    "id": "24e25805",
+    "name": "Eruption / Cyber Forest / 50% / 1.0x",
+    "created": 1774302516.814629,
+    "preset": {
+      "animation_idx": 32,
+      "palette_idx": 25,
+      "fx": "none",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "speed": 1
+    }
+  },
+  {
+    "id": "a3181a25",
+    "name": "Interference / Emerald / 50% / 1.0x",
+    "created": 1774302522.705739,
+    "preset": {
+      "animation_idx": 0,
+      "palette_idx": 6,
+      "fx": "none",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "speed": 1
+    }
+  },
+  {
+    "id": "eb000451",
+    "name": "Echoes / Cyber Forest / 50% / 1.0x",
+    "created": 1774302534.91056,
+    "preset": {
+      "animation_idx": 34,
+      "palette_idx": 25,
+      "fx": "none",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "speed": 1
+    }
+  },
+  {
+    "id": "5aa4c2c5",
+    "name": "Waves / Fire / Trails / 50% / 1.0x",
+    "created": 1774487008.320409,
+    "preset": {
+      "animation_idx": 30,
+      "palette_idx": 4,
+      "fx": "trails",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "speed": 1
+    }
+  },
+  {
+    "id": "786d4e9d",
+    "name": "Prism2 / Aurora / Trails / 50% / 1.0x",
+    "created": 1774487109.409251,
+    "preset": {
+      "animation_idx": 33,
+      "palette_idx": 2,
+      "fx": "trails",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "speed": 1
+    }
+  },
+  {
+    "id": "70bcc612",
+    "name": "Falling / Royal / Trails / 50% / 0.6x",
+    "created": 1774487137.053196,
+    "preset": {
+      "animation_idx": 16,
+      "palette_idx": 22,
+      "fx": "trails",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "speed": 0.56
+    }
+  },
+  {
+    "id": "2c491fd1",
+    "name": "Bonfire / Sunset / Trails / 50% / 0.6x",
+    "created": 1774487151.8507142,
+    "preset": {
+      "animation_idx": 11,
+      "palette_idx": 1,
+      "fx": "trails",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "speed": 0.56
+    }
+  },
+  {
+    "id": "24ef454f",
+    "name": "Tides / Ocean Breeze / Trails / 50% / 0.6x",
+    "created": 1774487350.4403,
+    "preset": {
+      "animation_idx": 36,
+      "palette_idx": 13,
+      "fx": "trails",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "speed": 0.56
+    }
+  },
+  {
+    "id": "0fb7416a",
+    "name": "Comet / Deep Sea 2 / Trails / 50% / 0.3x",
+    "created": 1774487387.9406998,
+    "preset": {
+      "animation_idx": 25,
+      "palette_idx": 30,
+      "fx": "trails",
+      "fx_intensity": 0.83,
+      "brightness": 128,
+      "speed": 0.31
+    }
+  },
+  {
+    "id": "8898cf21",
+    "name": "Lava / Fire / Ripple / 50% / 1.0x",
+    "created": 1774748173.1867468,
+    "preset": {
+      "pattern_idx": 8,
+      "palette_idx": 4,
+      "fx": "ripple",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "speed": 1,
+      "audio_mode": "audio"
+    }
+  },
+  {
+    "id": "b5deb3eb",
+    "name": "Diamond / Neon Gold / Ripple / 50% / 1.0x",
+    "created": 1774748315.2865238,
+    "preset": {
+      "pattern_idx": 19,
+      "palette_idx": 12,
+      "fx": "ripple",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "speed": 1,
+      "audio_mode": "none"
+    }
+  },
+  {
+    "id": "b0d2cdc2",
+    "name": "Diamond / Fire / Ripple / 50% / 1.0x",
+    "created": 1774748440.443271,
+    "preset": {
+      "pattern_idx": 19,
+      "palette_idx": 4,
+      "fx": "ripple",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "speed": 1,
+      "audio_mode": "none"
+    }
+  },
+  {
+    "id": "33343bb4",
+    "name": "Tides / Deep Sea / Ripple / 50% / 1.0x",
+    "created": 1774749167.852628,
+    "preset": {
+      "pattern_idx": 36,
+      "palette_idx": 5,
+      "fx": "ripple",
+      "fx_intensity": 0.22,
+      "brightness": 128,
+      "speed": 1,
+      "audio_mode": "none"
+    }
+  },
+  {
+    "id": "fe278d59",
+    "name": "Waves / Toxic / Ripple / 80% / 1.0x",
+    "created": 1774749383.0417511,
+    "preset": {
+      "pattern_idx": 30,
+      "palette_idx": 8,
+      "fx": "ripple",
+      "fx_intensity": 0.5,
+      "brightness": 205,
+      "speed": 1,
+      "audio_mode": "none"
+    }
+  },
+  {
+    "id": "f93f54f0",
+    "name": "Chladni / Fire / 50% / 1.0x",
+    "created": 1774749503.778615,
+    "preset": {
+      "pattern_idx": 38,
+      "palette_idx": 4,
+      "fx": "none",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "speed": 1,
+      "audio_mode": "none"
+    }
+  },
+  {
+    "id": "fdc63e58",
+    "name": "Resonance / Neon Gold / 50% / 1.0x",
+    "created": 1774749525.561656,
+    "preset": {
+      "pattern_idx": 39,
+      "palette_idx": 12,
+      "fx": "none",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "speed": 1,
+      "audio_mode": "none"
+    }
+  },
+  {
+    "id": "a4f6cb05",
+    "name": "Harmonics / Cherry Blossom / 50% / 1.0x",
+    "created": 1774749541.05564,
+    "preset": {
+      "pattern_idx": 41,
+      "palette_idx": 14,
+      "fx": "none",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "speed": 1,
+      "audio_mode": "none"
+    }
+  },
+  {
+    "id": "d58e24d1",
+    "name": "Cells / Cherry Blossom / Ripple / 50% / 1.0x",
+    "created": 1774749572.742623,
+    "preset": {
+      "pattern_idx": 42,
+      "palette_idx": 14,
+      "fx": "ripple",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "speed": 1,
+      "audio_mode": "none"
+    }
+  },
+  {
+    "id": "da2625c9",
+    "name": "Bloom / Citrus / 76% / 1.0x",
+    "created": 1774749611.037824,
+    "preset": {
+      "pattern_idx": 43,
+      "palette_idx": 21,
+      "fx": "none",
+      "fx_intensity": 0.5,
+      "brightness": 194,
+      "speed": 1,
+      "audio_mode": "none"
+    }
+  },
+  {
+    "id": "98c051cf",
+    "name": "Diamond / Cyber Forest / Ripple / 50% / 1.0x",
+    "created": 1774749736.0833092,
+    "preset": {
+      "pattern_idx": 19,
+      "palette_idx": 25,
+      "fx": "ripple",
+      "fx_intensity": 0.05,
+      "brightness": 128,
+      "speed": 1,
+      "audio_mode": "none"
+    }
+  },
+  {
+    "id": "57e62785",
+    "name": "Gear / Deep Space / Ripple / 50% / 0.5x",
+    "created": 1774749795.303573,
+    "preset": {
+      "pattern_idx": 26,
+      "palette_idx": 19,
+      "fx": "ripple",
+      "fx_intensity": 0.01,
+      "brightness": 128,
+      "speed": 0.54,
+      "audio_mode": "none"
+    }
+  },
+  {
+    "id": "0da38683",
+    "name": "Mirage / Midnight / Ripple / 50% / 1.0x",
+    "created": 1774749973.709152,
+    "preset": {
+      "pattern_idx": 37,
+      "palette_idx": 7,
+      "fx": "ripple",
+      "fx_intensity": 0.8,
+      "brightness": 128,
+      "speed": 1,
+      "audio_mode": "none"
+    }
+  },
+  {
+    "id": "9682693f",
+    "name": "Radiate / Deep Sea / Ripple / 50% / 1.0x",
+    "created": 1774750245.2964292,
+    "preset": {
+      "pattern_idx": 35,
+      "palette_idx": 5,
+      "fx": "ripple",
+      "fx_intensity": 0.22,
+      "brightness": 128,
+      "speed": 1,
+      "audio_mode": "none"
+    }
+  }
+]
