@@ -109,18 +109,21 @@ function renderToCanvas(ctx, canvas, frameData, cols, rows, colOffset, params) {
             const cy = padding + y * spacing + spacing / 2;
 
             const brightness = (r + g + b) / 3;
-            if (brightness > 10 && glow > 1) {
-                const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius + glow);
-                grad.addColorStop(0, `rgba(${r}, ${g}, ${b}, 0.4)`);
+            // Large bright glow halo
+            if (brightness > 5 && glow > 0.5) {
+                const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius + glow * 1.5);
+                grad.addColorStop(0, `rgba(${r}, ${g}, ${b}, 0.7)`);
+                grad.addColorStop(0.5, `rgba(${r}, ${g}, ${b}, 0.3)`);
                 grad.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
                 ctx.fillStyle = grad;
-                ctx.fillRect(cx - radius - glow, cy - radius - glow,
-                    (radius + glow) * 2, (radius + glow) * 2);
+                ctx.fillRect(cx - radius - glow * 1.5, cy - radius - glow * 1.5,
+                    (radius + glow * 1.5) * 2, (radius + glow * 1.5) * 2);
             }
 
+            // Larger LED dot (fills more space between pixels)
             ctx.beginPath();
-            ctx.arc(cx, cy, radius / 2, 0, Math.PI * 2);
-            ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+            ctx.arc(cx, cy, radius * 0.75, 0, Math.PI * 2);
+            ctx.fillStyle = `rgb(${Math.min(255, r)}, ${Math.min(255, g)}, ${Math.min(255, b)})`;
             ctx.fill();
 
             if (brightness < 10) {

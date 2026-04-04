@@ -1023,14 +1023,25 @@ def _vis_pixel(frame, y, x, hue, val, sat=0.8):
         frame[y, x, 2] = min(255, max(frame[y, x, 2], pb))
 
 
-def _vis_render(frame, w, h, t, func):
-    """Render a (nx, ny, t) -> (r,g,b) function into a frame with square aspect."""
+def _vis_render(frame, w, h, t, func, bass=0, mid=0, treble=0):
+    """Render a (nx, ny, t) -> (r,g,b) function into a frame with square aspect.
+
+    In AUDIO mode (bass > 0): animation speeds up dramatically with bass.
+    In DEFAULT mode: uses normal time, already animated by the pattern functions.
+    """
     aspect = w / max(h, 1)
+
+    # Audio reactivity: bass drives animation MUCH faster
+    if bass > 0.01:
+        effective_t = t * (0.3 + bass * 5.0)  # strong: silence = slow, loud = 5x
+    else:
+        effective_t = t  # DEFAULT mode: normal speed
+
     for y_px in range(h):
         ny = y_px / max(h - 1, 1) - 0.5
         for x_px in range(w):
             nx = (x_px / max(w - 1, 1) - 0.5) * aspect
-            r, g, b = func(nx, ny, t)
+            r, g, b = func(nx, ny, effective_t)
             if r > 2 or g > 2 or b > 2:
                 frame[y_px, x_px, 0] = min(255, max(frame[y_px, x_px, 0], int(r * _BRIGHTNESS_BOOST)))
                 frame[y_px, x_px, 1] = min(255, max(frame[y_px, x_px, 1], int(g * _BRIGHTNESS_BOOST)))
@@ -1104,16 +1115,16 @@ def _kal_mandala_fn(nx, ny, t):
 
 
 def _render_kal_crystal(frame, w, h, t, fft, td, bass, mid, treble):
-    _vis_render(frame, w, h, t, _kal_crystal_fn)
+    _vis_render(frame, w, h, t, _kal_crystal_fn, bass, mid, treble)
 
 def _render_kal_pulse(frame, w, h, t, fft, td, bass, mid, treble):
-    _vis_render(frame, w, h, t, _kal_pulse_fn)
+    _vis_render(frame, w, h, t, _kal_pulse_fn, bass, mid, treble)
 
 def _render_kal_star(frame, w, h, t, fft, td, bass, mid, treble):
-    _vis_render(frame, w, h, t, _kal_star_fn)
+    _vis_render(frame, w, h, t, _kal_star_fn, bass, mid, treble)
 
 def _render_kal_mandala(frame, w, h, t, fft, td, bass, mid, treble):
-    _vis_render(frame, w, h, t, _kal_mandala_fn)
+    _vis_render(frame, w, h, t, _kal_mandala_fn, bass, mid, treble)
 
 
 # ─── Cymatics (thin bright lines on dark, geometric patterns) ────────────────
@@ -1161,16 +1172,16 @@ def _cym_flower_fn(nx, ny, t):
 
 
 def _render_cym_circles(frame, w, h, t, fft, td, bass, mid, treble):
-    _vis_render(frame, w, h, t, _cym_circles_fn)
+    _vis_render(frame, w, h, t, _cym_circles_fn, bass, mid, treble)
 
 def _render_cym_diamonds(frame, w, h, t, fft, td, bass, mid, treble):
-    _vis_render(frame, w, h, t, _cym_diamonds_fn)
+    _vis_render(frame, w, h, t, _cym_diamonds_fn, bass, mid, treble)
 
 def _render_cym_grid(frame, w, h, t, fft, td, bass, mid, treble):
-    _vis_render(frame, w, h, t, _cym_grid_fn)
+    _vis_render(frame, w, h, t, _cym_grid_fn, bass, mid, treble)
 
 def _render_cym_flower(frame, w, h, t, fft, td, bass, mid, treble):
-    _vis_render(frame, w, h, t, _cym_flower_fn)
+    _vis_render(frame, w, h, t, _cym_flower_fn, bass, mid, treble)
 
 
 # ─── Waveforms (bold flowing curves, low complexity for 24px) ────────────────
@@ -1228,16 +1239,16 @@ def _wf_pulse_fn(nx, ny, t):
 
 
 def _render_wf_multi_sine(frame, w, h, t, fft, td, bass, mid, treble):
-    _vis_render(frame, w, h, t, _wf_multi_sine_fn)
+    _vis_render(frame, w, h, t, _wf_multi_sine_fn, bass, mid, treble)
 
 def _render_wf_ocean(frame, w, h, t, fft, td, bass, mid, treble):
-    _vis_render(frame, w, h, t, _wf_ocean_fn)
+    _vis_render(frame, w, h, t, _wf_ocean_fn, bass, mid, treble)
 
 def _render_wf_interference(frame, w, h, t, fft, td, bass, mid, treble):
-    _vis_render(frame, w, h, t, _wf_interference_fn)
+    _vis_render(frame, w, h, t, _wf_interference_fn, bass, mid, treble)
 
 def _render_wf_pulse(frame, w, h, t, fft, td, bass, mid, treble):
-    _vis_render(frame, w, h, t, _wf_pulse_fn)
+    _vis_render(frame, w, h, t, _wf_pulse_fn, bass, mid, treble)
 
 
 # ─── Keep old cymatics/waveform renders below for backwards compat ───────────

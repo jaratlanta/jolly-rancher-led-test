@@ -5,6 +5,7 @@ Supports runtime switching between different display models.
 """
 import asyncio
 import json
+import math
 import time
 import threading
 import numpy as np
@@ -308,7 +309,12 @@ class FrameEngine:
             render_fn = wf.get("render")
             if render_fn:
                 try:
-                    render_fn(frame, w, h, t, None, None, 0, 0, 0)
+                    # DEFAULT mode: pass small simulated audio so patterns
+                    # still animate interestingly (not static)
+                    sim_bass = 0.3 + 0.2 * math.sin(t * 1.5)
+                    sim_mid = 0.2 + 0.15 * math.sin(t * 2.0)
+                    sim_treble = 0.15 + 0.1 * math.sin(t * 3.0)
+                    render_fn(frame, w, h, t, None, None, sim_bass, sim_mid, sim_treble)
                 except Exception:
                     pass
 
@@ -725,7 +731,7 @@ class FrameEngine:
             # 50% brightness = 2.0x multiplier (optimal viewing)
             # 100% brightness = 4.0x multiplier (extremely bright)
             # This makes the UI preview much brighter at high settings.
-            brightness_mult = (self.brightness / 255.0) * 4.0  # 0→0, 128→2.0, 255→4.0
+            brightness_mult = (self.brightness / 255.0) * 6.0  # 0→0, 128→3.0, 255→6.0
             if abs(brightness_mult - 1.0) > 0.01:
                 frame_f = frame_rgb.astype(np.float32) * brightness_mult
                 frame_rgb = np.clip(frame_f, 0, 255).astype(np.uint8)
