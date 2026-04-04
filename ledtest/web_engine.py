@@ -274,14 +274,12 @@ class FrameEngine:
     # ─── Waveform Frame Generation ────────────────────────────────────────
 
     def _generate_waveform_frame(self):
-        """Generate a waveform frame — waveforms render RGB directly.
+        """Generate a waveform frame — renders PER-SURFACE so each panel
+        gets its own centered coordinate space (matching the test harness).
 
-        New architecture: waveform render functions receive the full frame
-        and draw directly into it with RGB colors. This enables rainbow
-        gradients, persistence/trails, multi-color layering, etc.
-
-        Palette colors are passed so waveforms can bias their rainbow
-        toward the selected palette's color scheme.
+        For single-panel models (Test Panel): renders once at full size.
+        For multi-panel models (JR): renders each surface independently,
+        then stitches into the virtual canvas. Each panel is centered.
         """
         from .waveforms import set_palette_bias
         t = (time.monotonic() - self._start_time) * self.speed
@@ -293,29 +291,48 @@ class FrameEngine:
         pal = PALETTES[self.palette_idx]
         set_palette_bias(pal["colors"])
 
+        render_fn = wf.get("render")
+        if not render_fn:
+            return frame
+
+        # Get audio params
         if self.waveform_audio and self.audio.enabled:
-            render_fn = wf.get("audio_render", wf.get("render"))
             fft = self.audio.fft_data
             td = self.audio.td_data
             bass = self.audio.bass_smooth
             mid = self.audio.mid_smooth
             treble = self.audio.treble_smooth
-            if render_fn:
-                try:
-                    render_fn(frame, w, h, t, fft, td, bass, mid, treble)
-                except Exception:
-                    pass
         else:
-            render_fn = wf.get("render")
-            if render_fn:
+            fft, td = None, None
+            bass = 0.2 + 0.15 * math.sin(t * 0.3)
+            mid = 0.15 + 0.1 * math.sin(t * 0.4)
+            treble = 0.1 + 0.08 * math.sin(t * 0.5)
+
+        # Get surfaces for this model
+        surfaces = self.model_info.get("surfaces", {})
+
+        if surfaces:
+            # Multi-panel: render each surface independently (centered)
+            for surf_name, surf in surfaces.items():
+                col_start = surf["col_start"]
+                surf_w = surf["total_cols"]
+                surf_h = surf["rows"]
+
+                # Create a sub-frame for this surface
+                sub_frame = np.zeros((surf_h, surf_w, 3), dtype=np.uint8)
                 try:
-                    # DEFAULT mode: gentle slow oscillation for subtle animation
-                    sim_bass = 0.2 + 0.15 * math.sin(t * 0.3)
-                    sim_mid = 0.15 + 0.1 * math.sin(t * 0.4)
-                    sim_treble = 0.1 + 0.08 * math.sin(t * 0.5)
-                    render_fn(frame, w, h, t, None, None, sim_bass, sim_mid, sim_treble)
+                    render_fn(sub_frame, surf_w, surf_h, t, fft, td, bass, mid, treble)
                 except Exception:
                     pass
+
+                # Copy sub-frame into the main frame at the correct position
+                frame[:surf_h, col_start:col_start + surf_w] = sub_frame
+        else:
+            # Single panel: render directly (already centered)
+            try:
+                render_fn(frame, w, h, t, fft, td, bass, mid, treble)
+            except Exception:
+                pass
 
         return self._mirror_left_right(frame)
 
