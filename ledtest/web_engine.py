@@ -721,9 +721,14 @@ class FrameEngine:
             # Advance audio state
             self.audio.tick(frame_interval)
 
-            # Apply brightness cap to frame (affects both preview and hardware)
-            if self.brightness < 255:
-                frame_rgb = np.clip(frame_rgb, 0, self.brightness).astype(np.uint8)
+            # Apply brightness as a multiplier (not a cap).
+            # 50% brightness = 2.0x multiplier (optimal viewing)
+            # 100% brightness = 4.0x multiplier (extremely bright)
+            # This makes the UI preview much brighter at high settings.
+            brightness_mult = (self.brightness / 255.0) * 4.0  # 0→0, 128→2.0, 255→4.0
+            if abs(brightness_mult - 1.0) > 0.01:
+                frame_f = frame_rgb.astype(np.float32) * brightness_mult
+                frame_rgb = np.clip(frame_f, 0, 255).astype(np.uint8)
 
             self.current_frame_rgb = frame_rgb
 

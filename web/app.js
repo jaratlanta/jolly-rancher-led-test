@@ -429,7 +429,7 @@ function updateUI() {
 
     // Waveform labels (always update so they're current when switching sources)
     document.getElementById('wf-name').textContent = state.waveform_name || '—';
-    document.getElementById('wf-sub').textContent = `Waveform ${(state.waveform_idx || 0) + 1}/${state.waveform_count || 6}`;
+    document.getElementById('wf-sub').textContent = `Visualizer ${(state.waveform_idx || 0) + 1}/${state.waveform_count || 20}`;
     document.getElementById('wf-pal-name').textContent = state.palette_name || '—';
     document.getElementById('wf-pal-sub').textContent = `Palette ${(state.palette_idx || 0) + 1}/${state.palette_count || 0}`;
 
@@ -1026,7 +1026,7 @@ function updateSourceUI() {
         wfModeRow.classList.remove('hidden');
         // Update waveform nav labels
         document.getElementById('wf-name').textContent = state.waveform_name || '—';
-        document.getElementById('wf-sub').textContent = `Waveform ${(state.waveform_idx || 0) + 1}/${state.waveform_count || 6}`;
+        document.getElementById('wf-sub').textContent = `Visualizer ${(state.waveform_idx || 0) + 1}/${state.waveform_count || 20}`;
         document.getElementById('wf-pal-name').textContent = state.palette_name || '—';
         document.getElementById('wf-pal-sub').textContent = `Palette ${(state.palette_idx || 0) + 1}/${state.palette_count || 32}`;
         // Update sub-mode buttons

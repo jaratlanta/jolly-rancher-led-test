@@ -78,7 +78,7 @@ def _rainbow_color(nx, t, speed=0.1, saturation=1.0, value=1.0):
     return max(0, min(255, r)), max(0, min(255, g)), max(0, min(255, b))
 
 
-_BRIGHTNESS_BOOST = 1.25  # global brightness multiplier for waveforms
+_BRIGHTNESS_BOOST = 2.0  # global brightness multiplier for waveforms
 
 
 def _add_pixel(frame, y, x, r, g, b):
@@ -907,41 +907,84 @@ def _render_freq_cardio(frame, w, h, t, fft, td, bass, mid, treble):
     _cardio_frame_buf[:, 0, :] = 0  # clear leftmost column
 
     # Write new data into leftmost column (x=0)
+    # EXAGGERATED mapping: bass = BIG bright bars at bottom, treble = small dots at top
     if fft is not None:
-        # Compute the overall energy for a bar-style display
-        # Map vertical position to frequency: bottom = bass, top = treble
-        for y in range(h):
-            ny = y / max(h - 1, 1)
-            # Log-ish frequency mapping: more bass resolution
-            bin_idx = min(127, int((1.0 - ny) ** 1.3 * 127))
-            val = fft[bin_idx] / 255.0
+        # Split into 3 zones: bass (bottom 50%), mid (30%), treble (top 20%)
+        bass_rows = int(h * 0.50)   # bottom half for bass
+        mid_rows = int(h * 0.30)    # middle for mids
+        treble_rows = h - bass_rows - mid_rows  # top for treble
 
-            # Also grab neighbors for smoothness
-            for offset in [-2, -1, 1, 2]:
-                nb = min(127, max(0, bin_idx + offset))
-                val = max(val, fft[nb] / 255.0 * 0.6)
+        # Bass: bins 0-15, mapped to bottom rows, LARGE and bright
+        bass_energy = 0
+        for bi in range(16):
+            bass_energy = max(bass_energy, fft[bi] / 255.0)
+        bass_energy = bass_energy ** 0.7  # boost low values
+        bass_fill = int(bass_energy * bass_rows)
+        for dy in range(bass_fill):
+            y = h - 1 - dy  # fill from bottom up
+            frac = 1.0 - dy / max(1, bass_fill)  # brighter at bottom
+            r, g, b = _rainbow_color(0.0, t, speed=0.03, value=0.3 + 0.7 * frac)
+            _cardio_frame_buf[y, 0] = [min(255, int(r * (0.4 + 0.6 * bass_energy))),
+                                        min(255, int(g * (0.4 + 0.6 * bass_energy))),
+                                        min(255, int(b * (0.4 + 0.6 * bass_energy)))]
 
-            if val > 0.05:
-                # Color: rainbow mapped by vertical position (frequency)
-                r, g, b = _rainbow_color(1.0 - ny, t, speed=0.03)
-                _cardio_frame_buf[y, 0] = [
-                    min(255, int(r * val)),
-                    min(255, int(g * val)),
-                    min(255, int(b * val))
-                ]
+        # Mid: bins 16-60, mapped to middle rows
+        mid_energy = 0
+        for bi in range(16, 60):
+            mid_energy = max(mid_energy, fft[bi] / 255.0)
+        mid_fill = int(mid_energy * mid_rows)
+        mid_base_y = treble_rows  # start after treble zone
+        for dy in range(mid_fill):
+            y_top = mid_base_y + mid_rows // 2 - mid_fill // 2 + dy
+            if 0 <= y_top < h:
+                frac = 1.0 - abs(dy - mid_fill / 2) / max(1, mid_fill / 2)
+                r, g, b = _rainbow_color(0.4, t, speed=0.03, value=0.3 + 0.7 * frac)
+                _cardio_frame_buf[y_top, 0] = [min(255, int(r * mid_energy)),
+                                                min(255, int(g * mid_energy)),
+                                                min(255, int(b * mid_energy))]
+
+        # Treble: bins 60-127, mapped to top rows — small bright dots
+        treble_energy = 0
+        for bi in range(60, 128):
+            treble_energy = max(treble_energy, fft[bi] / 255.0)
+        if treble_energy > 0.15:
+            treble_fill = max(1, int(treble_energy * treble_rows * 0.5))
+            for dy in range(treble_fill):
+                y = treble_rows // 2 - treble_fill // 2 + dy
+                if 0 <= y < h:
+                    r, g, b = _rainbow_color(0.7, t, speed=0.03, value=treble_energy)
+                    _cardio_frame_buf[y, 0] = [min(255, int(r * treble_energy)),
+                                                min(255, int(g * treble_energy)),
+                                                min(255, int(b * treble_energy))]
     else:
-        # DEFAULT mode: simulated audio
-        for y in range(h):
-            ny = y / max(h - 1, 1)
-            val = 0.3 + 0.5 * abs(math.sin(ny * 6.0 + t * 2.5 + math.sin(t * 0.7) * 3))
-            val *= 0.5 + 0.5 * abs(math.sin(t * 1.5 + ny * 3.0))
-            if val > 0.1:
-                r, g, b = _rainbow_color(1.0 - ny, t, speed=0.03)
-                _cardio_frame_buf[y, 0] = [
-                    min(255, int(r * val)),
-                    min(255, int(g * val)),
-                    min(255, int(b * val))
-                ]
+        # DEFAULT mode: simulated audio with exaggerated bass at bottom
+        bass_sim = 0.3 + 0.5 * abs(math.sin(t * 2.0))
+        mid_sim = 0.2 + 0.4 * abs(math.sin(t * 3.0 + 1.0))
+        treble_sim = 0.15 + 0.3 * abs(math.sin(t * 5.0 + 2.0))
+
+        bass_rows = int(h * 0.5)
+        bass_fill = int(bass_sim * bass_rows)
+        for dy in range(bass_fill):
+            y = h - 1 - dy
+            frac = 1.0 - dy / max(1, bass_fill)
+            r, g, b = _rainbow_color(0.0, t, speed=0.03, value=0.3 + 0.7 * frac)
+            _cardio_frame_buf[y, 0] = [int(r * bass_sim), int(g * bass_sim), int(b * bass_sim)]
+
+        mid_rows = int(h * 0.3)
+        mid_fill = int(mid_sim * mid_rows)
+        mid_center = int(h * 0.3)
+        for dy in range(mid_fill):
+            y = mid_center - mid_fill // 2 + dy
+            if 0 <= y < h:
+                r, g, b = _rainbow_color(0.4, t, speed=0.03, value=mid_sim)
+                _cardio_frame_buf[y, 0] = [int(r * mid_sim), int(g * mid_sim), int(b * mid_sim)]
+
+        if treble_sim > 0.2:
+            for dy in range(max(1, int(treble_sim * 3))):
+                y = dy
+                if y < h:
+                    r, g, b = _rainbow_color(0.7, t, speed=0.03, value=treble_sim)
+                    _cardio_frame_buf[y, 0] = [int(r * treble_sim), int(g * treble_sim), int(b * treble_sim)]
 
     # Age fade: dim older columns slightly (right side = older)
     # Apply a very gentle fade so it's not abrupt
@@ -955,28 +998,478 @@ def _render_freq_cardio(frame, w, h, t, fft, td, bass, mid, treble):
     np.maximum(frame, faded, out=frame)
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# NEW VISUALIZERS — tested via test_harness.py, proven to look good
+# Three categories: Kaleidoscopes, Cymatics, Waveforms
+# All use square coordinate space (aspect-corrected for wide panels)
+# ═════════════════════════════════════════════════════════════════════════════
+
+def _nodal_line(val, thickness=0.15):
+    """Bright line where a wave value crosses zero. Thick for LED visibility."""
+    v = max(0, 1.0 - abs(val) / thickness)
+    return v * v
+
+
+def _vis_pixel(frame, y, x, hue, val, sat=0.8):
+    """Set a pixel from HSV. Uses square coord brightness boost."""
+    if val < 0.02:
+        return
+    h_px, w_px = frame.shape[:2]
+    if 0 <= y < h_px and 0 <= x < w_px:
+        r, g, b = colorsys.hsv_to_rgb(hue % 1.0, min(1, sat), min(1, val))
+        pr, pg, pb = int(r * 255 * _BRIGHTNESS_BOOST), int(g * 255 * _BRIGHTNESS_BOOST), int(b * 255 * _BRIGHTNESS_BOOST)
+        frame[y, x, 0] = min(255, max(frame[y, x, 0], pr))
+        frame[y, x, 1] = min(255, max(frame[y, x, 1], pg))
+        frame[y, x, 2] = min(255, max(frame[y, x, 2], pb))
+
+
+def _vis_render(frame, w, h, t, func):
+    """Render a (nx, ny, t) -> (r,g,b) function into a frame with square aspect."""
+    aspect = w / max(h, 1)
+    for y_px in range(h):
+        ny = y_px / max(h - 1, 1) - 0.5
+        for x_px in range(w):
+            nx = (x_px / max(w - 1, 1) - 0.5) * aspect
+            r, g, b = func(nx, ny, t)
+            if r > 2 or g > 2 or b > 2:
+                frame[y_px, x_px, 0] = min(255, max(frame[y_px, x_px, 0], int(r * _BRIGHTNESS_BOOST)))
+                frame[y_px, x_px, 1] = min(255, max(frame[y_px, x_px, 1], int(g * _BRIGHTNESS_BOOST)))
+                frame[y_px, x_px, 2] = min(255, max(frame[y_px, x_px, 2], int(b * _BRIGHTNESS_BOOST)))
+
+
+# ─── Kaleidoscopes (kept from approved round) ────────────────────────────────
+
+def _kal_crystal_fn(nx, ny, t):
+    r = math.sqrt(nx * nx + ny * ny)
+    theta = math.atan2(ny, nx)
+    sector = math.pi / 3
+    sector_idx = int(theta / sector) if theta >= 0 else int(theta / sector) - 1
+    local_angle = theta - sector_idx * sector
+    if sector_idx % 2 == 1:
+        local_angle = sector - local_angle
+    v1 = abs(math.sin(nx * 6.0 + t * 0.5)) * abs(math.cos(ny * 6.0 - t * 0.3))
+    v2 = abs(math.sin(r * 8.0 - t * 0.8))
+    v3 = abs(math.cos(6.0 * theta + t * 0.2))
+    combined = v1 * 0.4 + v2 * 0.3 + v3 * 0.3
+    combined *= (0.5 + 0.5 * math.cos(local_angle * 6.0))
+    val = min(1.0, combined * 1.5)
+    fade = max(0.05, 1.0 - r * 0.15)
+    val *= fade
+    hue = (local_angle / sector * 0.5 + r * 0.4 + t * 0.03) % 1.0
+    return _hsv_rgb(hue, 0.85, val)
+
+def _kal_pulse_fn(nx, ny, t):
+    r = math.sqrt(nx * nx + ny * ny)
+    theta = math.atan2(ny, nx)
+    pulse = 1.0 + 0.3 * math.sin(t * 2.0)
+    ring_freq = 8.0 * pulse
+    n_angular = 8
+    v1 = math.cos(r * ring_freq) * math.cos(n_angular * theta)
+    v2 = math.cos(r * ring_freq * 1.6) * math.cos(n_angular * 2 * theta) * 0.4
+    v3 = math.cos(r * ring_freq * 2.3) * math.cos(n_angular * 3 * theta + t * 0.2) * 0.2
+    val = max(0, min(1.0, (v1 + v2 + v3 + 1.6) / 3.0))
+    fade = max(0.05, 1.0 - r * 0.15)
+    val *= fade
+    hue = (theta / (2.0 * math.pi) + 0.5 + r * 0.4) % 1.0
+    return _hsv_rgb(hue, 0.7 + 0.3 * math.sin(r * 5.0), val)
+
+def _kal_star_fn(nx, ny, t):
+    r = math.sqrt(nx * nx + ny * ny)
+    theta = math.atan2(ny, nx)
+    points = int(6 + 2 * math.sin(t * 0.1))
+    sharpness = max(1, 4.0 + 2.0 * math.sin(t * 0.15))
+    star_r = 1.0 + 0.5 * abs(math.cos(points * theta + t * 0.3)) ** sharpness
+    ring = math.cos(r * 10.0 * star_r - t * 0.8)
+    ring2 = math.cos(r * 18.0 / star_r + t * 0.5) * 0.3
+    val = max(0, min(1.0, (ring + ring2 + 1.3) / 2.6))
+    fade = max(0.05, 1.0 - r * 0.15)
+    val *= fade
+    hue = (theta / (2.0 * math.pi) + 0.5 + t * 0.03) % 1.0
+    return _hsv_rgb(hue, 0.85, val)
+
+def _kal_mandala_fn(nx, ny, t):
+    r = math.sqrt(nx * nx + ny * ny)
+    theta = math.atan2(ny, nx)
+    n1 = 3.0 + 1.5 * math.sin(t * 0.15)
+    n2 = 6.0 + 2.0 * math.sin(t * 0.1 + 1.0)
+    n3 = 9.0 + 3.0 * math.sin(t * 0.08 + 2.0)
+    v1 = math.cos(r * 8.0 - t) * math.cos(n1 * theta)
+    v2 = math.cos(r * 14.0 + t * 0.6) * math.cos(n2 * theta) * 0.5
+    v3 = math.cos(r * 22.0 - t * 0.3) * math.cos(n3 * theta) * 0.25
+    val = max(0, min(1.0, (v1 + v2 + v3 + 1.75) / 3.5))
+    fade = max(0.05, 1.0 - r * 0.15)
+    val *= fade
+    hue = (theta / (2.0 * math.pi) + 0.5 + t * 0.02) % 1.0
+    return _hsv_rgb(hue, 0.8, val)
+
+
+def _render_kal_crystal(frame, w, h, t, fft, td, bass, mid, treble):
+    _vis_render(frame, w, h, t, _kal_crystal_fn)
+
+def _render_kal_pulse(frame, w, h, t, fft, td, bass, mid, treble):
+    _vis_render(frame, w, h, t, _kal_pulse_fn)
+
+def _render_kal_star(frame, w, h, t, fft, td, bass, mid, treble):
+    _vis_render(frame, w, h, t, _kal_star_fn)
+
+def _render_kal_mandala(frame, w, h, t, fft, td, bass, mid, treble):
+    _vis_render(frame, w, h, t, _kal_mandala_fn)
+
+
+# ─── Cymatics (thin bright lines on dark, geometric patterns) ────────────────
+
+def _cym_circles_fn(nx, ny, t):
+    r = math.sqrt(nx * nx + ny * ny)
+    theta = math.atan2(ny, nx)
+    n, m = 3.0 + 0.5 * math.sin(t * 0.2), 4.0 + 0.5 * math.sin(t * 0.15)
+    p1 = math.sin(n * nx * 4.0) * math.sin(m * ny * 8.0) - math.sin(m * nx * 4.0) * math.sin(n * ny * 8.0)
+    p2 = math.cos(r * 6.0 - t * 0.3) * math.cos(4.0 * theta)
+    val = max(_nodal_line(p1, 0.18), _nodal_line(p2, 0.2) * 0.7)
+    hue = (theta / (2.0 * math.pi) + 0.5 + t * 0.02) % 1.0
+    return _hsv_rgb(hue, 0.5, min(1.0, val * 1.2))
+
+def _cym_diamonds_fn(nx, ny, t):
+    n = 3.0 + 0.5 * math.sin(t * 0.18)
+    m = 4.0 + 0.5 * math.cos(t * 0.12)
+    p1 = math.sin(n * nx * 5.0) * math.sin(m * ny * 10.0) - math.sin(m * nx * 5.0) * math.sin(n * ny * 10.0)
+    p2 = math.cos(n * nx * 3.0 + t * 0.2) * math.cos(m * ny * 6.0 - t * 0.15)
+    val = max(_nodal_line(p1, 0.2), _nodal_line(p2, 0.2) * 0.6)
+    hue = (0.55 + nx * 0.05 + t * 0.02) % 1.0
+    return _hsv_rgb(hue, 0.5, min(1.0, val * 1.2))
+
+def _cym_grid_fn(nx, ny, t):
+    r = math.sqrt(nx * nx + ny * ny)
+    theta = math.atan2(ny, nx)
+    p1 = math.cos(r * 5.0 - t * 0.4) + math.cos(4.0 * theta)
+    p2 = math.cos(r * 8.0 + t * 0.3) * math.cos(6.0 * theta + math.pi / 4)
+    val = max(_nodal_line(p1, 0.25), _nodal_line(p2, 0.2) * 0.6)
+    hue = (0.5 + theta / (2.0 * math.pi) * 0.2 + t * 0.015) % 1.0
+    return _hsv_rgb(hue, 0.55, min(1.0, val * 1.1))
+
+def _cym_flower_fn(nx, ny, t):
+    r = math.sqrt(nx * nx + ny * ny)
+    theta = math.atan2(ny, nx)
+    petals = 6
+    p1 = math.cos(r * 8.0 + t * 0.3) * math.cos(petals * theta)
+    p2 = math.cos(r * 12.0 - t * 0.2) * math.cos(petals * 2 * theta + math.pi / 6)
+    combined = p1 + p2 * 0.6
+    val = _nodal_line(combined, 0.12)
+    center_glow = max(0, 0.15 - r * 0.3) if r < 0.5 else 0
+    val = max(val, center_glow)
+    hue = (0.52 + theta / (2.0 * math.pi) * 0.15 + t * 0.02) % 1.0
+    return _hsv_rgb(hue, 0.5, min(1.0, val * 1.3))
+
+
+def _render_cym_circles(frame, w, h, t, fft, td, bass, mid, treble):
+    _vis_render(frame, w, h, t, _cym_circles_fn)
+
+def _render_cym_diamonds(frame, w, h, t, fft, td, bass, mid, treble):
+    _vis_render(frame, w, h, t, _cym_diamonds_fn)
+
+def _render_cym_grid(frame, w, h, t, fft, td, bass, mid, treble):
+    _vis_render(frame, w, h, t, _cym_grid_fn)
+
+def _render_cym_flower(frame, w, h, t, fft, td, bass, mid, treble):
+    _vis_render(frame, w, h, t, _cym_flower_fn)
+
+
+# ─── Waveforms (bold flowing curves, low complexity for 24px) ────────────────
+
+def _wf_multi_sine_fn(nx, ny, t):
+    val = 0.0
+    for i in range(3):
+        amp = 0.12 + i * 0.06
+        freq = 1.2 + i * 0.4
+        phase = t * (0.5 + i * 0.15) + i * 1.5
+        wave_y = amp * math.sin(nx * freq * math.pi + phase)
+        dist = abs(ny - wave_y)
+        line = max(0, 1.0 - dist * 15.0)
+        val = max(val, line * (0.6 + 0.4 * (i + 1) / 3))
+    hue = (nx * 0.3 + t * 0.05 + ny * 1.5 + 0.5) % 1.0
+    return _hsv_rgb(hue, 0.8, val)
+
+def _wf_ocean_fn(nx, ny, t):
+    val = 0.0
+    for i in range(4):
+        base_y = -0.12 + i * 0.08
+        amp = 0.06 + 0.03 * math.sin(t * 0.3 + i * 0.7)
+        freq = 1.0 + i * 0.3
+        phase = t * (0.3 + i * 0.08) + i * 1.3
+        wave_y = base_y + amp * math.sin(nx * freq * math.pi + phase)
+        dist = abs(ny - wave_y)
+        line = max(0, 1.0 - dist * 18.0)
+        val = max(val, line * 0.85)
+    hue = (nx * 0.4 + t * 0.03) % 1.0
+    return _hsv_rgb(hue, 0.75, val)
+
+def _wf_interference_fn(nx, ny, t):
+    val = 0.0
+    wave1 = 0.2 * math.sin(nx * 1.5 * math.pi + t * 0.5)
+    dist1 = abs(ny - wave1)
+    val += max(0, 1.0 - dist1 * 12.0) * 0.8
+    wave2 = 0.2 * math.sin(nx * 1.8 * math.pi - t * 0.4)
+    dist2 = abs(ny - wave2)
+    val += max(0, 1.0 - dist2 * 12.0) * 0.7
+    if dist1 < 0.06 and dist2 < 0.06:
+        val += 0.5
+    val = min(1.0, val)
+    hue = (nx * 0.4 + ny + t * 0.04) % 1.0
+    return _hsv_rgb(hue, 0.85, val)
+
+def _wf_pulse_fn(nx, ny, t):
+    pulse = 0.5 + 0.5 * math.sin(t * 1.5)
+    amp = 0.25 * (0.3 + 0.7 * pulse)
+    wave_y = amp * math.sin(nx * 1.5 * math.pi + t * 0.4)
+    wave_y += amp * 0.3 * math.sin(nx * 3.75 * math.pi + t * 0.6)
+    dist = abs(ny - wave_y)
+    val = max(0, 1.0 - dist * 10.0)
+    hue = (0.7 + nx * 0.3 + t * 0.03) % 1.0
+    return _hsv_rgb(hue, 0.7, val)
+
+
+def _render_wf_multi_sine(frame, w, h, t, fft, td, bass, mid, treble):
+    _vis_render(frame, w, h, t, _wf_multi_sine_fn)
+
+def _render_wf_ocean(frame, w, h, t, fft, td, bass, mid, treble):
+    _vis_render(frame, w, h, t, _wf_ocean_fn)
+
+def _render_wf_interference(frame, w, h, t, fft, td, bass, mid, treble):
+    _vis_render(frame, w, h, t, _wf_interference_fn)
+
+def _render_wf_pulse(frame, w, h, t, fft, td, bass, mid, treble):
+    _vis_render(frame, w, h, t, _wf_pulse_fn)
+
+
+# ─── Keep old cymatics/waveform renders below for backwards compat ───────────
+# (These will be removed from the registry but kept so imports don't break)
+
+def _render_cymatics_mandala(frame, w, h, t, fft, td, bass, mid, treble):
+    """Cymatics Mandala — radial standing waves filling the entire panel.
+
+    NO aspect correction — the pattern stretches to fill the panel naturally.
+    On wide panels you see a horizontal slice through the mandala center,
+    which looks great (see reference images).
+    Uses normalized 0-1 coordinates so pattern adapts to any panel size.
+    """
+    if fft is not None and bass > 0.01:
+        n1 = 3.0 + bass * 4.0
+        n2 = 6.0 + mid * 6.0
+        n3 = 9.0 + treble * 8.0
+        speed = 0.5 + bass * 2.0
+    else:
+        n1 = 3.0 + 1.5 * math.sin(t * 0.15)
+        n2 = 6.0 + 2.0 * math.sin(t * 0.1 + 1.0)
+        n3 = 9.0 + 3.0 * math.sin(t * 0.08 + 2.0)
+        speed = 1.0
+
+    for y_px in range(h):
+        ny = y_px / max(h - 1, 1) - 0.5  # -0.5 to 0.5
+        for x_px in range(w):
+            nx = x_px / max(w - 1, 1) - 0.5  # -0.5 to 0.5
+            r = math.sqrt(nx * nx + ny * ny)
+            theta = math.atan2(ny, nx)
+
+            v1 = math.cos(r * 16.0 - t * speed) * math.cos(n1 * theta)
+            v2 = math.cos(r * 28.0 + t * speed * 0.6) * math.cos(n2 * theta) * 0.5
+            v3 = math.cos(r * 44.0 - t * speed * 0.3) * math.cos(n3 * theta) * 0.25
+
+            val = max(0, min(1.0, (v1 + v2 + v3 + 1.75) / 3.5))
+
+            if val > 0.02:
+                hue = (theta / (2.0 * math.pi) + 0.5 + t * 0.02) % 1.0
+                rc, gc, bc = _rainbow_color(hue, t, speed=0.0, value=val)
+                _set_pixel(frame, y_px, x_px, rc, gc, bc)
+
+
+def _render_cymatics_star(frame, w, h, t, fft, td, bass, mid, treble):
+    """Cymatics Star — star-burst with sharp angular peaks."""
+    if fft is not None and bass > 0.01:
+        points = int(4 + bass * 8)
+        sharpness = max(1, 2.0 + mid * 6.0)
+        pulse = bass * 0.5
+    else:
+        points = int(6 + 2 * math.sin(t * 0.1))
+        sharpness = max(1, 4.0 + 2.0 * math.sin(t * 0.15))
+        pulse = 0.2 * math.sin(t * 1.5)
+
+    for y_px in range(h):
+        ny = y_px / max(h - 1, 1) - 0.5
+        for x_px in range(w):
+            nx = x_px / max(w - 1, 1) - 0.5
+            r = math.sqrt(nx * nx + ny * ny)
+            theta = math.atan2(ny, nx)
+
+            star_r = 1.0 + 0.4 * abs(math.cos(points * theta + t * 0.3)) ** sharpness
+            ring = math.cos(r * 24.0 * star_r - t * 0.8 + pulse * 5.0)
+            ring2 = math.cos(r * 40.0 / star_r + t * 0.5) * 0.3
+
+            val = max(0, min(1.0, (ring + ring2 + 1.3) / 2.6))
+
+            if val > 0.02:
+                hue = (theta / (2.0 * math.pi) + 0.5 + t * 0.03) % 1.0
+                rc, gc, bc = _rainbow_color(hue, t, speed=0.0, value=val)
+                _set_pixel(frame, y_px, x_px, rc, gc, bc)
+
+
+def _render_cymatics_bloom(frame, w, h, t, fft, td, bass, mid, treble):
+    """Cymatics Bloom — flower/petal pattern that breathes."""
+    if fft is not None and bass > 0.01:
+        petals = int(5 + bass * 6)
+        bloom = 0.3 + bass * 0.5
+        inner_detail = 3.0 + treble * 8.0
+    else:
+        petals = int(5 + 2 * math.sin(t * 0.12))
+        bloom = 0.4 + 0.15 * math.sin(t * 0.5)
+        inner_detail = 5.0 + 2.0 * math.sin(t * 0.2)
+
+    for y_px in range(h):
+        ny = y_px / max(h - 1, 1) - 0.5
+        for x_px in range(w):
+            nx = x_px / max(w - 1, 1) - 0.5
+            r = math.sqrt(nx * nx + ny * ny)
+            theta = math.atan2(ny, nx)
+
+            petal = abs(math.cos(petals * theta * 0.5 + t * 0.2))
+            petal_r = bloom * (0.5 + 0.5 * petal)
+
+            inner = math.cos(r * inner_detail * 20.0 - t * 0.6)
+            inner2 = math.cos(r * inner_detail * 40.0 + t * 0.4) * 0.3
+
+            dist_to_petal = abs(r - petal_r)
+            boundary = max(0, 1.0 - dist_to_petal * 15.0)
+            inside = 1.0 if r < petal_r else 0.0
+            fill = inside * (0.3 + 0.4 * max(0, (inner + inner2 + 1.3) / 2.6))
+
+            val = max(fill, boundary * 0.8)
+            val = min(1.0, val)
+
+            if val > 0.02:
+                hue = (theta / (2.0 * math.pi) + r * 2.0 + t * 0.02) % 1.0
+                rc, gc, bc = _rainbow_color(hue, t, speed=0.0, value=val)
+                _set_pixel(frame, y_px, x_px, rc, gc, bc)
+
+
+def _render_cymatics_ripple(frame, w, h, t, fft, td, bass, mid, treble):
+    """Cymatics Ripple — concentric rings with angular modulation."""
+    if fft is not None and bass > 0.01:
+        ring_freq = 16.0 + bass * 20.0
+        angular = 3.0 + mid * 5.0
+        speed = 1.0 + bass * 3.0
+    else:
+        ring_freq = 24.0 + 8.0 * math.sin(t * 0.1)
+        angular = 4.0 + 2.0 * math.sin(t * 0.15)
+        speed = 1.5
+
+    for y_px in range(h):
+        ny = y_px / max(h - 1, 1) - 0.5
+        for x_px in range(w):
+            nx = x_px / max(w - 1, 1) - 0.5
+            r = math.sqrt(nx * nx + ny * ny)
+            theta = math.atan2(ny, nx)
+
+            ring1 = math.sin(r * ring_freq - t * speed)
+            ang_mod = 1.0 + 0.3 * math.cos(angular * theta)
+            ring2 = math.sin(r * ring_freq * 1.7 * ang_mod + t * speed * 0.4) * 0.4
+
+            val = max(0, min(1.0, (ring1 * ang_mod + ring2 + 1.4) / 2.8))
+
+            if val > 0.02:
+                hue = (r * 4.0 + theta / (2.0 * math.pi) * 0.3 + t * 0.03) % 1.0
+                rc, gc, bc = _rainbow_color(hue, t, speed=0.0, value=val)
+                _set_pixel(frame, y_px, x_px, rc, gc, bc)
+
+
+def _render_cymatics_vortex(frame, w, h, t, fft, td, bass, mid, treble):
+    """Cymatics Vortex — spiraling mandala."""
+    if fft is not None and bass > 0.01:
+        arms = int(3 + bass * 5)
+        twist = 2.0 + mid * 4.0
+        ring_n = 20.0 + treble * 20.0
+        rot_speed = 0.5 + bass * 1.5
+    else:
+        arms = int(4 + math.sin(t * 0.1))
+        twist = 3.0 + math.sin(t * 0.12)
+        ring_n = 28.0
+        rot_speed = 0.8
+
+    for y_px in range(h):
+        ny = y_px / max(h - 1, 1) - 0.5
+        for x_px in range(w):
+            nx = x_px / max(w - 1, 1) - 0.5
+            r = math.sqrt(nx * nx + ny * ny)
+            theta = math.atan2(ny, nx)
+
+            spiral_theta = theta + r * twist * 10.0 - t * rot_speed
+            spiral_wave = math.cos(arms * spiral_theta)
+            rings = math.cos(r * ring_n - t * 0.6)
+
+            val = max(0, min(1.0, (spiral_wave * 0.6 + rings * 0.4 + 1.0) / 2.0))
+
+            if val > 0.02:
+                hue = (spiral_theta / (2.0 * math.pi) * 0.5 + r * 2.0 + t * 0.02) % 1.0
+                rc, gc, bc = _rainbow_color(hue, t, speed=0.0, value=val)
+                _set_pixel(frame, y_px, x_px, rc, gc, bc)
+
+
+def _render_cymatics_web(frame, w, h, t, fft, td, bass, mid, treble):
+    """Cymatics Web — intricate web from overlapping harmonics."""
+    if fft is not None and bass > 0.01:
+        n1 = 4.0 + bass * 3.0
+        n2 = 7.0 + mid * 5.0
+        n3 = 11.0 + treble * 4.0
+        r_mod = 20.0 + bass * 16.0
+    else:
+        n1 = 4.0 + math.sin(t * 0.1)
+        n2 = 7.0 + math.sin(t * 0.08 + 1.0)
+        n3 = 11.0 + math.sin(t * 0.06 + 2.0)
+        r_mod = 24.0
+
+    for y_px in range(h):
+        ny = y_px / max(h - 1, 1) - 0.5
+        for x_px in range(w):
+            nx = x_px / max(w - 1, 1) - 0.5
+            r = math.sqrt(nx * nx + ny * ny)
+            theta = math.atan2(ny, nx)
+
+            web1 = math.cos(n1 * theta) * math.cos(r * r_mod - t * 0.5)
+            web2 = math.cos(n2 * theta + math.pi/3) * math.cos(r * r_mod * 0.7 + t * 0.3)
+            web3 = math.cos(n3 * theta + math.pi/5) * math.cos(r * r_mod * 1.3 - t * 0.2)
+
+            combined = (web1 + web2 + web3 + 3.0) / 6.0
+            val = min(1.0, combined * combined * 1.5)
+
+            if val > 0.02:
+                hue = (theta / (2.0 * math.pi) + r * 3.0 + t * 0.02) % 1.0
+                rc, gc, bc = _rainbow_color(hue, t, speed=0.0, value=val)
+                _set_pixel(frame, y_px, x_px, rc, gc, bc)
+
+
 # ─── Registry ────────────────────────────────────────────────────────────────
 
 WAVEFORMS = [
+    # ── Kaleidoscopes (bold symmetric patterns, approved via test harness) ──
+    {"name": "Kal Crystal",       "render": _render_kal_crystal},
+    {"name": "Kal Pulse",         "render": _render_kal_pulse},
+    {"name": "Kal Star",          "render": _render_kal_star},
+    {"name": "Kal Mandala",       "render": _render_kal_mandala},
+    # ── Cymatics (thin lines on dark, geometric nodal patterns) ──
+    {"name": "Cym Circles",       "render": _render_cym_circles},
+    {"name": "Cym Diamonds",      "render": _render_cym_diamonds},
+    {"name": "Cym Grid",          "render": _render_cym_grid},
+    {"name": "Cym Flower",        "render": _render_cym_flower},
+    # ── Waveforms (bold flowing curves) ──
+    {"name": "Wave Multi",        "render": _render_wf_multi_sine},
+    {"name": "Wave Ocean",        "render": _render_wf_ocean},
+    {"name": "Wave Cross",        "render": _render_wf_interference},
+    {"name": "Wave Pulse",        "render": _render_wf_pulse},
+    # ── Classic visualizers (kept from earlier) ──
     {"name": "Frequency Bars",    "render": _render_freq_bars},
-    {"name": "Freq Cardiogram",  "render": _render_freq_cardio},
     {"name": "Spectrum Mirror",   "render": _render_spectrum_mirror},
     {"name": "Bar Wave",          "render": _render_bar_wave},
+    {"name": "Freq Cardiogram",   "render": _render_freq_cardio},
     {"name": "Cardiogram",        "render": _render_cardiogram},
     {"name": "Cardio Mirror",     "render": _render_cardio_mirror},
-    {"name": "Wave Cascade",      "render": _render_cascade},
-    {"name": "Twin Ribbon",       "render": _render_twin_ribbon},
-    {"name": "Flame Spectrum",    "render": _render_flame},
     {"name": "Waterfall",         "render": _render_waterfall},
-    {"name": "Scope + Bars",      "render": _render_scope_bars},
-    {"name": "Pulse Scroll",      "render": _render_pulse_scroll},
-    {"name": "Multi-Band",        "render": _render_multi_band},
-    {"name": "Neon Rain",         "render": _render_neon_rain},
-    {"name": "Diamond Lattice",   "render": _render_diamond},
-    {"name": "Helix",             "render": _render_helix},
-    {"name": "Heartbeat",         "render": _render_heartbeat},
-    {"name": "Wormhole",          "render": _render_wormhole},
-    {"name": "Sound Rings",       "render": _render_rings},
     {"name": "Scroll Spectrum",   "render": _render_scroll_spectrum},
 ]
 

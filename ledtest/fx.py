@@ -600,71 +600,75 @@ def fx_fireflies(engine, frame, dt):
 def _ripple_core(engine, frame, dt, damping, edge_mult_scale, trough_scale,
                  inject_edge=0.04, inject_drops=1, drop_strength=0.2,
                  disp_scale_base=1.0, motion_thresh=10):
-    """Shared ripple physics engine. Variants just tune parameters."""
+    """Gentle ripple displacement filter — level 2-3 wobble.
+
+    Target: pixels shift by 0.5-1.5 positions max. Like looking through
+    slightly wavy glass. NOT turbulent water. Gentle, controlled, pretty.
+    """
     f = frame.astype(np.float32)
     h, w = engine.height, engine.width
-    strength = 0.3 + engine.intensity * 1.2  # gentler: was 0.5 + 2.5
+
+    # Very gentle strength scaling
+    strength = 0.1 + engine.intensity * 0.3  # range 0.1 to 0.4
 
     bright = f.max(axis=2)
 
-    # Motion injection (reduced)
+    # Minimal motion injection
     if engine._prev_frame is not None:
         diff = np.abs(f.mean(axis=2) - engine._prev_frame.astype(np.float32).mean(axis=2))
         motion_mask = diff > motion_thresh
-        engine._ripple_buf1[motion_mask] += diff[motion_mask] * 0.03 * strength  # was 0.06
+        engine._ripple_buf1[motion_mask] += diff[motion_mask] * 0.005 * strength
 
-    # Edge energy (reduced)
+    # Tiny edge energy
     grad_bx = np.zeros((h, w), dtype=np.float32)
     grad_by = np.zeros((h, w), dtype=np.float32)
     grad_bx[:, 1:-1] = bright[:, 2:] - bright[:, :-2]
     grad_by[1:-1, :] = bright[2:, :] - bright[:-2, :]
     edge_energy = np.sqrt(grad_bx**2 + grad_by**2) / 255.0
-    engine._ripple_buf1 += edge_energy * inject_edge * strength * 0.5  # halved
+    engine._ripple_buf1 += edge_energy * inject_edge * strength * 0.1
 
-    # Random drops (fewer, gentler)
-    bright_ys, bright_xs = np.where(bright > 100)  # higher threshold
-    if len(bright_ys) > 0:
+    # Rare gentle drops
+    bright_ys, bright_xs = np.where(bright > 120)
+    if len(bright_ys) > 0 and np.random.random() < 0.3:  # only 30% of frames
         num = min(inject_drops, len(bright_ys))
         indices = np.random.choice(len(bright_ys), num, replace=False)
         for idx in indices:
             dy, dx = int(bright_ys[idx]), int(bright_xs[idx])
-            engine._ripple_buf1[dy, dx] += drop_strength * strength * 0.5  # halved
+            engine._ripple_buf1[dy, dx] += drop_strength * strength * 0.15
 
-    # Wave equation
+    # Wave equation with heavy damping
     padded = np.pad(engine._ripple_buf1, 1, mode='edge')
     neighbors = (padded[:-2, 1:-1] + padded[2:, 1:-1] +
                  padded[1:-1, :-2] + padded[1:-1, 2:]) / 2.0
     engine._ripple_buf2 = (neighbors - engine._ripple_buf2) * damping
     engine._ripple_buf1, engine._ripple_buf2 = engine._ripple_buf2, engine._ripple_buf1
 
+    # Clamp ripple buffer to prevent accumulation
+    np.clip(engine._ripple_buf1, -0.5, 0.5, out=engine._ripple_buf1)
+
     ripple = engine._ripple_buf1
 
-    # Displacement
+    # Gentle displacement: max ~1.5 pixel shift
     grad_x = np.zeros((h, w), dtype=np.float32)
     grad_y = np.zeros((h, w), dtype=np.float32)
     grad_x[:, 1:-1] = ripple[:, 2:] - ripple[:, :-2]
     grad_y[1:-1, :] = ripple[2:, :] - ripple[:-2, :]
 
-    disp = disp_scale_base + engine.intensity * 1.5
+    disp = disp_scale_base * 0.3 + engine.intensity * 0.4  # max ~0.7
     yy, xx = np.meshgrid(np.arange(h), np.arange(w), indexing='ij')
     src_x = np.clip((xx + grad_x * disp).astype(int), 0, w - 1)
     src_y = np.clip((yy + grad_y * disp).astype(int), 0, h - 1)
     result = f[src_y, src_x]
 
-    # Saturation-preserving brightness modulation:
-    # Instead of multiplying RGB (which desaturates on clip),
-    # scale toward white for brightening and toward black for darkening,
-    # then re-normalize so the max channel never exceeds 255.
+    # Very subtle brightness modulation (not harsh edges)
     edge_strength = np.sqrt(grad_x**2 + grad_y**2)
-    edge_boost = np.clip(edge_strength * edge_mult_scale * strength, 0, 2.0)
-    trough_dim = np.clip(-ripple * trough_scale * strength, 0, 0.5)
+    edge_boost = np.clip(edge_strength * edge_mult_scale * strength * 0.3, 0, 0.3)
+    trough_dim = np.clip(-ripple * trough_scale * strength * 0.2, 0, 0.15)
 
-    # Combined brightness factor: >1 = brighter, <1 = dimmer
     brightness_mod = (1.0 + edge_boost - trough_dim)[:, :, np.newaxis]
     result *= brightness_mod
 
-    # Re-normalize per pixel to prevent clipping desaturation:
-    # If any channel exceeds 255, scale the whole pixel down proportionally
+    # Prevent desaturation
     max_ch = result.max(axis=2, keepdims=True)
     overflow = np.where(max_ch > 255, 255.0 / np.maximum(max_ch, 1), 1.0)
     result *= overflow
@@ -715,35 +719,213 @@ def fx_ripple_shatter(engine, frame, dt):
                         disp_scale_base=1.2, motion_thresh=5)
 
 
-# ─── Gentle Cymatics variants (less disruption than Cymatics Ripple) ─────────
+# ─── Geometric Cymatics — real Chladni/Bessel plate math ─────────────────────
+# These create SYMMETRIC mandala patterns like real cymatics on a vibrating plate.
+# The pattern is computed as a displacement map that gently warps the animation.
+# Pattern morphs slowly over time (or with audio frequency changes).
 
-def fx_cymatics_whisper(engine, frame, dt):
-    """Cymatics Whisper — very subtle standing wave shimmer."""
-    return _ripple_core(engine, frame, dt,
-                        damping=0.988, edge_mult_scale=3, trough_scale=1.5,
-                        inject_edge=0.03, inject_drops=1, drop_strength=0.12,
-                        disp_scale_base=0.4)
+def _chladni_displacement(engine, frame, dt, n, m, morph_speed=0.15):
+    """Apply a Chladni plate pattern as a gentle displacement filter.
 
-def fx_cymatics_breath(engine, frame, dt):
-    """Cymatics Breath — gentle organic breathing distortion."""
-    return _ripple_core(engine, frame, dt,
-                        damping=0.987, edge_mult_scale=4, trough_scale=2,
-                        inject_edge=0.04, inject_drops=2, drop_strength=0.15,
-                        disp_scale_base=0.6)
+    Chladni equation: sin(n*pi*x)*sin(m*pi*y) - sin(m*pi*x)*sin(n*pi*y)
+    Nodal lines (where value = 0) form the beautiful geometric patterns.
+    We use the pattern as a displacement field to gently warp the image.
+    """
+    f = frame.astype(np.float32)
+    h, w = engine.height, engine.width
+    strength = 0.5 + engine.intensity * 1.5  # visible but controlled: 0.5 to 2.0
 
-def fx_cymatics_flow(engine, frame, dt):
-    """Cymatics Flow — moderate standing wave with smooth movement."""
-    return _ripple_core(engine, frame, dt,
-                        damping=0.986, edge_mult_scale=5, trough_scale=2.5,
-                        inject_edge=0.05, inject_drops=2, drop_strength=0.20,
-                        disp_scale_base=0.8)
+    # Slowly morphing n and m for variety
+    t = engine._time
+    nn = n + 0.5 * math.sin(t * morph_speed)
+    mm = m + 0.5 * math.cos(t * morph_speed * 0.7)
 
-def fx_cymatics_pulse(engine, frame, dt):
-    """Cymatics Pulse — noticeable standing wave patterns, still controlled."""
-    return _ripple_core(engine, frame, dt,
-                        damping=0.986, edge_mult_scale=6, trough_scale=3,
-                        inject_edge=0.06, inject_drops=2, drop_strength=0.25,
-                        disp_scale_base=1.0)
+    # Compute Chladni pattern
+    yy, xx = np.meshgrid(np.arange(h), np.arange(w), indexing='ij')
+    nx_arr = xx / max(w - 1, 1)
+    ny_arr = yy / max(h - 1, 1)
+
+    pattern = (np.sin(nn * np.pi * nx_arr) * np.sin(mm * np.pi * ny_arr) -
+               np.sin(mm * np.pi * nx_arr) * np.sin(nn * np.pi * ny_arr))
+
+    # Use pattern gradient as displacement (max ~1 pixel shift)
+    grad_x = np.zeros((h, w), dtype=np.float32)
+    grad_y = np.zeros((h, w), dtype=np.float32)
+    grad_x[:, 1:-1] = pattern[:, 2:] - pattern[:, :-2]
+    grad_y[1:-1, :] = pattern[2:, :] - pattern[:-2, :]
+
+    disp = strength * 2.0  # visible: 1-4 pixel displacement
+    src_x = np.clip((xx + grad_x * disp).astype(int), 0, w - 1)
+    src_y = np.clip((yy + grad_y * disp).astype(int), 0, h - 1)
+    result = f[src_y, src_x]
+
+    # Visible brightness on nodal lines (the geometric shapes)
+    nodal = np.abs(pattern)
+    nodal_boost = np.clip((1.0 - nodal) * strength * 0.4, 0, 0.5)
+    result *= (1.0 + nodal_boost)[:, :, np.newaxis]
+
+    max_ch = result.max(axis=2, keepdims=True)
+    overflow = np.where(max_ch > 255, 255.0 / np.maximum(max_ch, 1), 1.0)
+    result *= overflow
+
+    return np.clip(result, 0, 255).astype(np.uint8)
+
+
+def _bessel_displacement(engine, frame, dt, order, morph_speed=0.12):
+    """Apply a circular drum mode (Bessel function) as displacement.
+
+    Creates concentric ring / mandala patterns like the reference images.
+    J_n(r) * cos(n * theta) — circular harmonics.
+    """
+    f = frame.astype(np.float32)
+    h, w = engine.height, engine.width
+    strength = 0.2 + engine.intensity * 0.5
+
+    t = engine._time
+    n = order + 0.3 * math.sin(t * morph_speed)
+
+    yy, xx = np.meshgrid(np.arange(h), np.arange(w), indexing='ij')
+    cx, cy = w / 2, h / 2
+    dx = (xx - cx) / max(w, 1) * 2  # -1 to 1
+    dy = (yy - cy) / max(h, 1) * 2
+
+    r = np.sqrt(dx * dx + dy * dy)
+    theta = np.arctan2(dy, dx)
+
+    # Approximate Bessel-like pattern: sin(n*pi*r) * cos(n*theta)
+    pattern = np.sin(n * np.pi * r * 2.5) * np.cos(n * theta)
+
+    # Displacement from gradient
+    grad_x = np.zeros((h, w), dtype=np.float32)
+    grad_y = np.zeros((h, w), dtype=np.float32)
+    grad_x[:, 1:-1] = pattern[:, 2:] - pattern[:, :-2]
+    grad_y[1:-1, :] = pattern[2:, :] - pattern[:-2, :]
+
+    disp = strength * 1.8  # visible: 1-3.5 pixel displacement
+    src_x = np.clip((xx + grad_x * disp).astype(int), 0, w - 1)
+    src_y = np.clip((yy + grad_y * disp).astype(int), 0, h - 1)
+    result = f[src_y, src_x]
+
+    # Visible brightness on pattern peaks (concentric rings)
+    peak_boost = np.clip(np.abs(pattern) * strength * 0.35, 0, 0.4)
+    result *= (1.0 + peak_boost)[:, :, np.newaxis]
+
+    max_ch = result.max(axis=2, keepdims=True)
+    overflow = np.where(max_ch > 255, 255.0 / np.maximum(max_ch, 1), 1.0)
+    result *= overflow
+
+    return np.clip(result, 0, 255).astype(np.uint8)
+
+
+def fx_cymatics_mandala(engine, frame, dt):
+    """Cymatics Mandala — circular Bessel drum mode, concentric ring pattern."""
+    return _bessel_displacement(engine, frame, dt, order=4, morph_speed=0.1)
+
+def fx_cymatics_star(engine, frame, dt):
+    """Cymatics Star — star/flower pattern from higher-order Bessel mode."""
+    return _bessel_displacement(engine, frame, dt, order=6, morph_speed=0.08)
+
+def fx_cymatics_square(engine, frame, dt):
+    """Cymatics Square — Chladni plate pattern (square nodal lines)."""
+    return _chladni_displacement(engine, frame, dt, n=3, m=5, morph_speed=0.12)
+
+def fx_cymatics_lattice(engine, frame, dt):
+    """Cymatics Lattice — complex Chladni pattern with more harmonics."""
+    return _chladni_displacement(engine, frame, dt, n=5, m=7, morph_speed=0.08)
+
+
+# ─── Kaleidoscope FX — actual pixel remapping for visible symmetry ───────────
+
+def _kaleidoscope(engine, frame, dt, num_sectors, rotation_speed=0.3):
+    """Kaleidoscope: remap pixels through radial symmetry sectors.
+
+    Uses SQUARE aspect ratio for the kaleidoscope math (based on height),
+    then tiles the effect across the width for wide panels. This keeps
+    the mandala looking circular/centered rather than stretched.
+    """
+    f = frame.astype(np.float32)
+    h, w = engine.height, engine.width
+    t = engine._time
+
+    yy, xx = np.meshgrid(np.arange(h), np.arange(w), indexing='ij')
+
+    # Use height as the reference dimension for square aspect ratio
+    # This makes the kaleidoscope circular, not stretched
+    # For wide panels, the effect tiles/repeats across X
+    tile_size = float(h)  # one "tile" is h×h pixels
+
+    # Normalize to square coordinates, tiling across width
+    nx = np.mod(xx.astype(np.float32), tile_size) / tile_size - 0.5  # -0.5 to 0.5, tiled
+    ny = yy.astype(np.float32) / max(h - 1, 1) - 0.5  # -0.5 to 0.5
+
+    r = np.sqrt(nx * nx + ny * ny)
+    theta = np.arctan2(ny, nx)
+
+    # Rotate slowly
+    theta_rot = theta - t * rotation_speed
+
+    # Fold into sectors
+    sector_angle = 2.0 * np.pi / num_sectors
+    theta_folded = np.abs(np.mod(theta_rot, sector_angle) - sector_angle / 2.0)
+
+    # Back to cartesian (in normalized space), then to pixel coords
+    # Map back using the ORIGINAL frame coordinates (not tiled)
+    src_nx = r * np.cos(theta_folded) + 0.5  # 0 to 1
+    src_ny = r * np.sin(theta_folded) + 0.5  # 0 to 1
+
+    src_x = np.clip((src_nx * (w - 1)).astype(int), 0, w - 1)
+    src_y = np.clip((src_ny * (h - 1)).astype(int), 0, h - 1)
+
+    result = f[src_y, src_x]
+    return np.clip(result, 0, 255).astype(np.uint8)
+
+
+def _mirror_quad(engine, frame, dt):
+    """4-way mirror: tiles square quadrants across the width.
+
+    For wide panels (220x24), creates repeating mirrored squares
+    based on the height dimension, so the symmetry is visible.
+    """
+    result = frame.copy()
+    h, w = frame.shape[:2]
+    my = h // 2
+    if my < 1:
+        return result
+
+    # Mirror vertically (top ↔ bottom) across the full width
+    result[my:my + my, :] = result[:my, :][::-1, :]
+
+    # Mirror horizontally in square tiles across the width
+    tile_w = h  # square tiles
+    for tile_start in range(0, w, tile_w):
+        tile_end = min(tile_start + tile_w, w)
+        tile_mid = (tile_start + tile_end) // 2
+        half_w = tile_mid - tile_start
+        if half_w > 0:
+            # Mirror left half to right half within each tile
+            src_slice = result[:, tile_start:tile_mid].copy()
+            dest_w = min(half_w, tile_end - tile_mid)
+            if dest_w > 0:
+                result[:, tile_mid:tile_mid + dest_w] = src_slice[:, :dest_w][:, ::-1]
+
+    return result
+
+
+def fx_kaleidoscope_6(engine, frame, dt):
+    """Kaleidoscope 6 — 6-sector mandala with slow rotation."""
+    return _kaleidoscope(engine, frame, dt, num_sectors=6, rotation_speed=0.2)
+
+def fx_kaleidoscope_8(engine, frame, dt):
+    """Kaleidoscope 8 — 8-sector star pattern."""
+    return _kaleidoscope(engine, frame, dt, num_sectors=8, rotation_speed=0.15)
+
+def fx_kaleidoscope_12(engine, frame, dt):
+    """Kaleidoscope 12 — complex 12-sector mandala."""
+    return _kaleidoscope(engine, frame, dt, num_sectors=12, rotation_speed=0.1)
+
+def fx_mirror_quad(engine, frame, dt):
+    """Mirror Quad — 4-way quadrant symmetry."""
+    return _mirror_quad(engine, frame, dt)
 
 
 # ─── FX Registry ─────────────────────────────────────────────────────────────
@@ -757,12 +939,14 @@ FX_REGISTRY = {
     "ripple_deep":       fx_ripple_deep,
     "ripple_rain":       fx_ripple_rain,
     "ripple_glass":      fx_ripple_glass,
-    "ripple_cymatics":   fx_ripple_cymatics,
-    "ripple_shatter":    fx_ripple_shatter,
-    "cymatics_whisper":  fx_cymatics_whisper,
-    "cymatics_breath":   fx_cymatics_breath,
-    "cymatics_flow":     fx_cymatics_flow,
-    "cymatics_pulse":    fx_cymatics_pulse,
+    "cymatics_mandala":  fx_cymatics_mandala,
+    "cymatics_star":     fx_cymatics_star,
+    "cymatics_square":   fx_cymatics_square,
+    "cymatics_lattice":  fx_cymatics_lattice,
+    "kaleidoscope_6":    fx_kaleidoscope_6,
+    "kaleidoscope_8":    fx_kaleidoscope_8,
+    "kaleidoscope_12":   fx_kaleidoscope_12,
+    "mirror_quad":       fx_mirror_quad,
 }
 
 # Ordered list for UI display
@@ -776,10 +960,12 @@ FX_LIST = [
     {"key": "ripple_deep",       "name": "Deep Ripple"},
     {"key": "ripple_rain",       "name": "Rain Ripple"},
     {"key": "ripple_glass",      "name": "Glass Ripple"},
-    {"key": "ripple_cymatics",   "name": "Cymatics Ripple"},
-    {"key": "ripple_shatter",    "name": "Shatter Ripple"},
-    {"key": "cymatics_whisper",  "name": "Cymatics Whisper"},
-    {"key": "cymatics_breath",   "name": "Cymatics Breath"},
-    {"key": "cymatics_flow",     "name": "Cymatics Flow"},
-    {"key": "cymatics_pulse",    "name": "Cymatics Pulse"},
+    {"key": "kaleidoscope_6",    "name": "Kaleidoscope 6"},
+    {"key": "kaleidoscope_8",    "name": "Kaleidoscope 8"},
+    {"key": "kaleidoscope_12",   "name": "Kaleidoscope 12"},
+    {"key": "mirror_quad",       "name": "Mirror Quad"},
+    {"key": "cymatics_mandala",  "name": "Cymatics Mandala"},
+    {"key": "cymatics_star",     "name": "Cymatics Star"},
+    {"key": "cymatics_square",   "name": "Cymatics Square"},
+    {"key": "cymatics_lattice",  "name": "Cymatics Lattice"},
 ]
