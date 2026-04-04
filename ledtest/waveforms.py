@@ -1212,15 +1212,20 @@ def _render_cym_grid(frame, w, h, t, fft, td, bass, mid, treble):
             r = math.sqrt(nx * nx + ny * ny)
             theta = math.atan2(ny, nx)
 
-            # Audio bands drive structural changes
-            r_freq1 = 3.5 + bass * 5.0
+            # Audio drives the SHAPE, not just brightness
+            # Bass pushes rings outward (radial phase offset = speaker cone)
+            # Mid changes symmetry complexity
+            # Treble adds detail layer + rotation
+            radial_push = bass * 3.0       # bass pushes rings outward like a speaker
+            r_freq1 = 3.5 + bass * 2.0
             n_angular = 4.0 + mid * 6.0
-            r_freq2 = 6.0 + treble * 6.0
-            rotation = t * 0.1 + treble * 1.5
+            r_freq2 = 6.0 + treble * 4.0
+            rotation = t * 0.1 + treble * 0.5
             secondary_mix = 0.3 + treble * 0.5
 
-            p1 = math.cos(r * r_freq1 - rotation) + math.cos(n_angular * theta)
-            p2 = math.cos(r * r_freq2 + rotation * 0.7) * math.cos((n_angular + 2) * theta + math.pi / 4)
+            # radial_push offsets the ring positions — rings expand outward with bass
+            p1 = math.cos(r * r_freq1 - rotation - radial_push) + math.cos(n_angular * theta)
+            p2 = math.cos(r * r_freq2 + rotation * 0.7 - radial_push * 0.5) * math.cos((n_angular + 2) * theta + math.pi / 4)
 
             val = max(_nodal_line(p1, 0.22), _nodal_line(p2, 0.18) * secondary_mix)
 
