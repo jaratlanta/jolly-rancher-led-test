@@ -57,6 +57,11 @@ class AudioEngine:
         self.audio_time = 0.0
         self._step_per_beat = 0.4
 
+        # Beat push: accumulated counter that steps forward on each beat.
+        # Used by visualizers for radial expansion / perpetual outward motion.
+        self.beat_push = 0.0
+        self._beat_push_last_count = 0
+
         # FFT and time-domain data for waveform visualizations
         self.fft_data = np.zeros(128, dtype=np.float32)
         self.td_data = np.full(128, 128.0, dtype=np.float32)  # centered at 128
@@ -73,6 +78,8 @@ class AudioEngine:
         self._beat_count = 0
         self._beat_phase = 0.0
         self.audio_time = 0.0
+        self.beat_push = 0.0
+        self._beat_push_last_count = 0
         self.fft_data[:] = 0
         self.td_data[:] = 128
         self.fft_history[:] = 0
@@ -185,6 +192,13 @@ class AudioEngine:
 
             # Phase: 0.0 = just hit a beat, 1.0 = about to hit next
             self._beat_phase = self._metro_time / self._beat_interval
+
+            # Beat push: steps forward on each new beat, with smooth easing
+            if self._beat_count != self._beat_push_last_count:
+                self._beat_push_last_count = self._beat_count
+            # Smooth easing within beat: jumps on beat, eases to next position
+            ease = 1.0 - math.exp(-self._beat_phase * 8.0)
+            self.beat_push = self._beat_count + ease
 
             # ── Audio mode: advance audio_time with pulse shape ────────
             if self._mode == "audio":

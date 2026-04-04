@@ -295,18 +295,25 @@ class FrameEngine:
         if not render_fn:
             return frame
 
-        # Get audio params
+        # Get audio params + beat_push
         if self.waveform_audio and self.audio.enabled:
             fft = self.audio.fft_data
             td = self.audio.td_data
             bass = self.audio.bass_smooth
             mid = self.audio.mid_smooth
             treble = self.audio.treble_smooth
+            beat_push = self.audio.beat_push
         else:
             fft, td = None, None
             bass = 0.2 + 0.15 * math.sin(t * 0.3)
             mid = 0.15 + 0.1 * math.sin(t * 0.4)
             treble = 0.1 + 0.08 * math.sin(t * 0.5)
+            # DEFAULT: smooth continuous advance based on manual BPM
+            beat_push = t * (self.manual_bpm / 60.0)
+
+        # Store beat_push so render functions can access it
+        from . import waveforms as _wf_module
+        _wf_module._current_beat_push = beat_push
 
         # Get surfaces for this model
         surfaces = self.model_info.get("surfaces", {})

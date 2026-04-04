@@ -79,6 +79,7 @@ def _rainbow_color(nx, t, speed=0.1, saturation=1.0, value=1.0):
 
 
 _BRIGHTNESS_BOOST = 2.0  # global brightness multiplier for waveforms
+_current_beat_push = 0.0  # set by web_engine each frame (accumulated beat counter)
 
 
 def _add_pixel(frame, y, x, r, g, b):
@@ -1026,16 +1027,12 @@ def _vis_pixel(frame, y, x, hue, val, sat=0.8):
 def _vis_render(frame, w, h, t, func, bass=0, mid=0, treble=0):
     """Render a (nx, ny, t) -> (r,g,b) function into a frame with square aspect.
 
-    In AUDIO mode (bass > 0): animation speeds up dramatically with bass.
-    In DEFAULT mode: uses normal time, already animated by the pattern functions.
+    Uses beat_push for smooth animation that syncs with BPM (default or audio).
     """
     aspect = w / max(h, 1)
 
-    # Audio reactivity: bass drives animation MUCH faster
-    if bass > 0.01:
-        effective_t = t * (0.3 + bass * 5.0)  # strong: silence = slow, loud = 5x
-    else:
-        effective_t = t  # DEFAULT mode: normal speed
+    # Use beat_push as the primary time driver — syncs with BPM
+    effective_t = _current_beat_push * 0.5 + t * 0.05  # beat-driven + slow drift
 
     for y_px in range(h):
         ny = y_px / max(h - 1, 1) - 0.5
@@ -1186,25 +1183,9 @@ def _render_cym_circles(frame, w, h, t, fft, td, bass, mid, treble):
 def _render_cym_diamonds(frame, w, h, t, fft, td, bass, mid, treble):
     _vis_render(frame, w, h, t, _cym_diamonds_fn, bass, mid, treble)
 
-def _render_cym_grid(frame, w, h, t, fft, td, bass, mid, treble):
-    """Cym Grid with direct FFT + band audio reactivity.
-    Uses FFT bins for per-column modulation (like Frequency Bars does).
-    Bass → ring spacing, Mid → symmetry, Treble → detail + rotation.
-    FFT → per-column brightness boost for obvious audio response.
-    """
+def _cym_grid_core(frame, w, h, t, bass, mid, treble, radial_offset):
+    """Shared core for Cym Grid Pulse and Radiate. Renders holographic cymatics."""
     aspect = w / max(h, 1)
-
-    # Pre-compute per-column FFT energy for fast lookup
-    col_energy = np.zeros(w, dtype=np.float32)
-    if fft is not None:
-        for x in range(w):
-            bi = min(127, int((x / max(w - 1, 1)) * 100))
-            col_energy[x] = fft[bi] / 255.0
-            # Smooth with neighbors
-            for o in [-1, 1]:
-                nb = min(127, max(0, bi + o))
-                col_energy[x] = max(col_energy[x], fft[nb] / 255.0 * 0.6)
-
     for y_px in range(h):
         ny = y_px / max(h - 1, 1) - 0.5
         for x_px in range(w):
@@ -1212,38 +1193,38 @@ def _render_cym_grid(frame, w, h, t, fft, td, bass, mid, treble):
             r = math.sqrt(nx * nx + ny * ny)
             theta = math.atan2(ny, nx)
 
-            # Audio drives the SHAPE, not just brightness
-            # Bass pushes rings outward (radial phase offset = speaker cone)
-            # Mid changes symmetry complexity
-            # Treble adds detail layer + rotation
-            radial_push = bass * 3.0       # bass pushes rings outward like a speaker
-            r_freq1 = 3.5 + bass * 2.0
-            n_angular = 4.0 + mid * 6.0
-            r_freq2 = 6.0 + treble * 4.0
-            rotation = t * 0.1 + treble * 0.5
-            secondary_mix = 0.3 + treble * 0.5
+            r_freq1 = 3.5 + bass * 1.5
+            n_angular = 4.0 + mid * 5.0
+            r_freq2 = 6.0 + treble * 3.0
+            rotation = t * 0.08
 
-            # radial_push offsets the ring positions — rings expand outward with bass
-            p1 = math.cos(r * r_freq1 - rotation - radial_push) + math.cos(n_angular * theta)
-            p2 = math.cos(r * r_freq2 + rotation * 0.7 - radial_push * 0.5) * math.cos((n_angular + 2) * theta + math.pi / 4)
+            p1 = math.cos(r * r_freq1 - radial_offset - rotation) + math.cos(n_angular * theta)
+            p2 = math.cos(r * r_freq2 - radial_offset * 0.7 + rotation * 0.5) * math.cos((n_angular + 2) * theta + math.pi / 4)
 
+            secondary_mix = 0.3 + treble * 0.4
             val = max(_nodal_line(p1, 0.22), _nodal_line(p2, 0.18) * secondary_mix)
-
-            # FFT boost: per-column energy makes the pattern pulse with the music
-            if fft is not None:
-                fft_boost = col_energy[x_px]
-                val = val * (0.3 + fft_boost * 1.5)  # dim without audio, bright with
+            val *= (0.5 + bass * 1.2)
 
             if val > 0.02:
                 hue = (theta / (2.0 * math.pi) * 0.6 + r * 0.8 + t * 0.02) % 1.0
                 sat = min(1.0, 0.75 + 0.15 * math.sin(r * 5.0 + theta * 2.0))
-                rc, gc, bc = colorsys.hsv_to_rgb(hue % 1.0, sat, min(1.0, val * 1.2))
+                rc, gc, bc = colorsys.hsv_to_rgb(hue % 1.0, sat, min(1.0, val * 1.3))
                 pr = min(255, int(rc * 255 * _BRIGHTNESS_BOOST))
                 pg = min(255, int(gc * 255 * _BRIGHTNESS_BOOST))
                 pb = min(255, int(bc * 255 * _BRIGHTNESS_BOOST))
                 frame[y_px, x_px, 0] = max(frame[y_px, x_px, 0], pr)
                 frame[y_px, x_px, 1] = max(frame[y_px, x_px, 1], pg)
                 frame[y_px, x_px, 2] = max(frame[y_px, x_px, 2], pb)
+
+
+def _render_cym_grid_radiate(frame, w, h, t, fft, td, bass, mid, treble):
+    """Cym Grid Radiate — rings expand outward perpetually. Tested via GIF harness."""
+    _cym_grid_core(frame, w, h, t, bass, mid, treble, radial_offset=_current_beat_push * 1.5)
+
+
+def _render_cym_grid_pulse(frame, w, h, t, fft, td, bass, mid, treble):
+    """Cym Grid Pulse — shape throbs/pulses with each beat."""
+    _cym_grid_core(frame, w, h, t, bass, mid, treble, radial_offset=_current_beat_push * 1.2)
 
 def _render_cym_flower(frame, w, h, t, fft, td, bass, mid, treble):
     _vis_render(frame, w, h, t, _cym_flower_fn, bass, mid, treble)
@@ -1525,8 +1506,9 @@ def _render_cymatics_web(frame, w, h, t, fft, td, bass, mid, treble):
 WAVEFORMS = [
     # ── #1 Frequency Bars (proven audio-reactive reference) ──
     {"name": "Frequency Bars",    "render": _render_freq_bars},
-    # ── #2 Cymatics Grid (holographic, per-band + FFT reactive) ──
-    {"name": "Cym Grid",          "render": _render_cym_grid},
+    # ── Cymatics Grid variants (tested via animated GIF harness) ──
+    {"name": "Cym Radiate",       "render": _render_cym_grid_radiate},
+    {"name": "Cym Pulse",         "render": _render_cym_grid_pulse},
     # ── Kaleidoscopes ──
     {"name": "Kal Crystal",       "render": _render_kal_crystal},
     {"name": "Kal Pulse",         "render": _render_kal_pulse},
