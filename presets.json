@@ -606,5 +606,109 @@
       "brightness": 255,
       "manual_bpm": 120
     }
+  },
+  {
+    "id": "6df7f508",
+    "name": "Lava / Sunset Gold / Cymatics_breath / 50% / 120bpm",
+    "created": 1774816879.77465,
+    "preset": {
+      "pattern_idx": 7,
+      "palette_idx": 26,
+      "fx": "cymatics_breath",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "manual_bpm": 120
+    }
+  },
+  {
+    "id": "147ead2f",
+    "name": "Nebula / Toxic Sludge / Cymatics_pulse / 50% / 120bpm",
+    "created": 1774816944.893464,
+    "preset": {
+      "pattern_idx": 6,
+      "palette_idx": 23,
+      "fx": "cymatics_pulse",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "manual_bpm": 120
+    }
+  },
+  {
+    "id": "e066df5c",
+    "name": "Echoes / Cyber Forest / Cymatics_breath / 50% / 120bpm",
+    "created": 1774840813.152048,
+    "preset": {
+      "pattern_idx": 32,
+      "palette_idx": 25,
+      "fx": "cymatics_breath",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "manual_bpm": 120
+    }
+  },
+  {
+    "id": "b65f4775",
+    "name": "Resonance / Ocean Breeze / Trails / 50% / 151bpm",
+    "created": 1775322053.158716,
+    "preset": {
+      "pattern_idx": 37,
+      "palette_idx": 13,
+      "fx": "trails",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "manual_bpm": 151
+    }
+  },
+  {
+    "id": "88d089e3",
+    "name": "Resonance / Forest / Trails / 50% / 151bpm",
+    "created": 1775322146.626613,
+    "preset": {
+      "pattern_idx": 37,
+      "palette_idx": 16,
+      "fx": "trails",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "manual_bpm": 151
+    }
+  },
+  {
+    "id": "35795314",
+    "name": "Cells / Glacier / Phosphor / 87% / 151bpm",
+    "created": 1775322378.53135,
+    "preset": {
+      "pattern_idx": 40,
+      "palette_idx": 9,
+      "fx": "phosphor",
+      "fx_intensity": 0.5,
+      "brightness": 223,
+      "manual_bpm": 151
+    }
+  },
+  {
+    "id": "e1ab1700",
+    "name": "Fractal / Chrome / Phosphor / 87% / 151bpm",
+    "created": 1775322478.600039,
+    "preset": {
+      "pattern_idx": 45,
+      "palette_idx": 38,
+      "fx": "phosphor",
+      "fx_intensity": 0.97,
+      "brightness": 223,
+      "manual_bpm": 151
+    }
+  },
+  {
+    "id": "406fd216",
+    "name": "Color Cycle / Midnight / Glow / 100% / 120bpm",
+    "created": 1775326938.428979,
+    "preset": {
+      "pattern_idx": 0,
+      "palette_idx": 7,
+      "fx": "glow",
+      "fx_intensity": 0.5,
+      "brightness": 254,
+      "manual_bpm": 120
+    }
   }
 ]

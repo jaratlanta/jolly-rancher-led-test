@@ -72,10 +72,11 @@
 
     <div class="controls">
 
-        <!-- Source Toggle: Pattern vs Webcam -->
+        <!-- Source Toggle: Pattern / Waveform / Webcam -->
         <div class="control-row source-row">
             <div class="source-toggle">
                 <button class="source-btn active" id="source-anim-btn">Pattern</button>
+                <button class="source-btn" id="source-waveform-btn">Waveform</button>
                 <button class="source-btn" id="source-webcam-btn">Webcam</button>
             </div>
         </div>
@@ -100,6 +101,59 @@
                     <div class="sub" id="pal-sub">Palette 0/0</div>
                 </div>
                 <button class="nav-btn" id="pal-next" title="Next palette">&#9654;</button>
+            </div>
+
+            <div class="nav-divider"></div>
+
+            <div class="nav-group">
+                <button class="nav-btn" id="fx-prev" title="Previous FX">&#9664;</button>
+                <div class="nav-label">
+                    <div class="name" id="fx-name">None</div>
+                    <div class="sub" id="fx-sub">FX</div>
+                </div>
+                <button class="nav-btn" id="fx-next" title="Next FX">&#9654;</button>
+            </div>
+        </div>
+
+        <!-- Waveform Navigation (hidden unless waveform active) -->
+        <div class="control-row navigation hidden" id="waveform-nav-row">
+            <div class="nav-group">
+                <button class="nav-btn" id="wf-prev" title="Previous waveform">&#9664;</button>
+                <div class="nav-label">
+                    <div class="name" id="wf-name">&mdash;</div>
+                    <div class="sub" id="wf-sub">Waveform 0/0</div>
+                </div>
+                <button class="nav-btn" id="wf-next" title="Next waveform">&#9654;</button>
+            </div>
+
+            <div class="nav-divider"></div>
+
+            <div class="nav-group">
+                <button class="nav-btn" id="wf-pal-prev" title="Previous palette">&#9664;</button>
+                <div class="nav-label">
+                    <div class="name" id="wf-pal-name">&mdash;</div>
+                    <div class="sub" id="wf-pal-sub">Palette 0/0</div>
+                </div>
+                <button class="nav-btn" id="wf-pal-next" title="Next palette">&#9654;</button>
+            </div>
+
+            <div class="nav-divider"></div>
+
+            <div class="nav-group">
+                <button class="nav-btn" id="wf-fx-prev" title="Previous FX">&#9664;</button>
+                <div class="nav-label">
+                    <div class="name" id="wf-fx-name">None</div>
+                    <div class="sub" id="wf-fx-sub">FX</div>
+                </div>
+                <button class="nav-btn" id="wf-fx-next" title="Next FX">&#9654;</button>
+            </div>
+        </div>
+
+        <!-- Waveform sub-mode toggle: DEFAULT / AUDIO -->
+        <div class="control-row source-row hidden" id="waveform-mode-row">
+            <div class="source-toggle">
+                <button class="source-btn active" id="wf-mode-default-btn">DEFAULT</button>
+                <button class="source-btn" id="wf-mode-audio-btn">AUDIO</button>
             </div>
         </div>
 
@@ -169,13 +223,7 @@
             </div>
         </div>
 
-        <!-- FX Selection -->
-        <div class="control-row fx-row">
-            <span class="slider-label">FX</span>
-            <div class="fx-chips" id="fx-chips"></div>
-        </div>
-
-        <!-- FX Intensity -->
+        <!-- FX Intensity (shown when FX is active) -->
         <div class="control-row" id="fx-intensity-row" style="display: none;">
             <div class="slider-group">
                 <span class="slider-label">FX Amount</span>

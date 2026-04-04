@@ -26,6 +26,10 @@ let cyclePrevPresetIdx = -1;
 
 // Webcam state
 let webcamActive = false;
+let waveformActive = false;
+let waveformAudioMode = false;
+let wfFftArray = null;
+let wfTdArray = null;
 let webcamStream = null;
 let webcamVideo = null;
 let webcamSampleCanvas = null;
@@ -423,6 +427,20 @@ function updateUI() {
     document.getElementById('pal-sub').textContent =
         `Palette ${(state.palette_idx || 0) + 1}/${state.palette_count || 0}`;
 
+    // Waveform labels (always update so they're current when switching sources)
+    document.getElementById('wf-name').textContent = state.waveform_name || '—';
+    document.getElementById('wf-sub').textContent = `Waveform ${(state.waveform_idx || 0) + 1}/${state.waveform_count || 6}`;
+    document.getElementById('wf-pal-name').textContent = state.palette_name || '—';
+    document.getElementById('wf-pal-sub').textContent = `Palette ${(state.palette_idx || 0) + 1}/${state.palette_count || 0}`;
+
+    // Sync waveform active state from server
+    if (state.waveform_mode && !waveformActive) {
+        waveformActive = true;
+        updateSourceUI();
+    } else if (!state.waveform_mode && waveformActive && !webcamActive) {
+        // Don't auto-deactivate if we just set it locally
+    }
+
     // Brightness
     const brSlider = document.getElementById('brightness-slider');
     const brValue = document.getElementById('brightness-value');
@@ -460,7 +478,7 @@ function updateUI() {
     }
 
     // FX
-    updateFXChips();
+    updateFXDisplay();
 
     // Symmetry toggle sync
     const symOn = state.symmetry !== false; // default true
@@ -542,28 +560,27 @@ async function loadFX() {
     try {
         const resp = await fetch('/api/fx');
         fxList = await resp.json();
-        const container = document.getElementById('fx-chips');
-        container.innerHTML = '';
-        fxList.forEach(fx => {
-            const chip = document.createElement('button');
-            chip.className = 'fx-chip' + (fx.key === 'none' ? ' active' : '');
-            chip.textContent = fx.name;
-            chip.dataset.key = fx.key;
-            chip.addEventListener('click', () => {
-                send({ cmd: 'set_fx', key: fx.key });
-            });
-            container.appendChild(chip);
-        });
     } catch (e) {
         console.warn('Failed to load FX:', e);
     }
 }
 
-function updateFXChips() {
+function updateFXDisplay() {
     const currentFX = state.fx || 'none';
-    document.querySelectorAll('.fx-chip').forEach(chip => {
-        chip.classList.toggle('active', chip.dataset.key === currentFX);
+    const fxObj = fxList.find(f => f.key === currentFX);
+    const fxName = fxObj ? fxObj.name : 'None';
+
+    // Update all FX name displays (pattern row and waveform row)
+    ['fx-name', 'wf-fx-name'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = fxName;
     });
+    ['fx-sub', 'wf-fx-sub'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = 'FX';
+    });
+
+    // FX intensity row
     const intensityRow = document.getElementById('fx-intensity-row');
     if (currentFX !== 'none') {
         intensityRow.style.display = '';
@@ -824,6 +841,96 @@ function toggleWebcam() {
     }
 }
 
+// ─── Waveform Mode ──────────────────────────────────────────────────────────
+
+let wfAudioCtx = null;
+let wfAnalyser = null;
+let wfStream = null;
+let wfAnimFrameId = null;
+
+function startWaveform() {
+    waveformActive = true;
+    send({ cmd: 'set_waveform', on: true });
+    updateSourceUI();
+}
+
+function stopWaveform() {
+    waveformActive = false;
+    waveformAudioMode = false;
+    stopWaveformAudio();
+    send({ cmd: 'set_waveform', on: false });
+    send({ cmd: 'set_waveform_audio', on: false });
+    updateSourceUI();
+}
+
+async function startWaveformAudio() {
+    try {
+        wfStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        wfAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const source = wfAudioCtx.createMediaStreamSource(wfStream);
+        wfAnalyser = wfAudioCtx.createAnalyser();
+        wfAnalyser.fftSize = 256;  // 128 frequency bins
+        source.connect(wfAnalyser);
+        wfFftArray = new Uint8Array(wfAnalyser.frequencyBinCount);  // 128
+        wfTdArray = new Uint8Array(wfAnalyser.frequencyBinCount);   // 128
+
+        // Also enable the main audio engine for beat detection
+        send({ cmd: 'set_audio_enabled', on: true });
+
+        wfSendLoop();
+    } catch (err) {
+        console.error('Waveform mic denied:', err);
+        waveformAudioMode = false;
+        updateSourceUI();
+    }
+}
+
+function stopWaveformAudio() {
+    if (wfAnimFrameId) {
+        cancelAnimationFrame(wfAnimFrameId);
+        wfAnimFrameId = null;
+    }
+    if (wfStream) {
+        wfStream.getTracks().forEach(t => t.stop());
+        wfStream = null;
+    }
+    if (wfAudioCtx) {
+        wfAudioCtx.close().catch(() => {});
+        wfAudioCtx = null;
+        wfAnalyser = null;
+    }
+}
+
+function wfSendLoop() {
+    if (!waveformAudioMode || !wfAnalyser) return;
+
+    wfAnalyser.getByteFrequencyData(wfFftArray);
+    wfAnalyser.getByteTimeDomainData(wfTdArray);
+
+    // Send as binary: 1 type byte (0x02) + 128 FFT + 128 TD = 257 bytes
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        const buf = new Uint8Array(257);
+        buf[0] = 0x02;  // type marker
+        buf.set(wfFftArray, 1);
+        buf.set(wfTdArray, 129);
+        ws.send(buf.buffer);
+    }
+
+    // Also send band values for the main audio engine (beat detection etc.)
+    let bass = 0;
+    for (let i = 1; i < 8; i++) bass += wfFftArray[i];
+    bass = (bass / 7) / 255;
+    let mid = 0;
+    for (let i = 10; i < 30; i++) mid += wfFftArray[i];
+    mid = (mid / 20) / 255;
+    let treble = 0;
+    for (let i = 35; i < 128; i++) treble += wfFftArray[i];
+    treble = (treble / (128 - 35)) / 255;
+    send({ cmd: 'audio_data', bass, mid, treble });
+
+    wfAnimFrameId = requestAnimationFrame(wfSendLoop);
+}
+
 function sampleWebcam() {
     if (!webcamActive || !webcamVideo || webcamVideo.readyState < 2) return;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
@@ -895,20 +1002,50 @@ function _drawWebcamFitted(ctx, video, vidW, vidH, destX, destY, destW, destH) {
 
 function updateSourceUI() {
     const animBtn = document.getElementById('source-anim-btn');
+    const wfBtn = document.getElementById('source-waveform-btn');
     const wcBtn = document.getElementById('source-webcam-btn');
     const animRow = document.getElementById('anim-nav-row');
+    const wfRow = document.getElementById('waveform-nav-row');
+    const wfModeRow = document.getElementById('waveform-mode-row');
     const wcRow = document.getElementById('webcam-nav-row');
+    const animModeRow = document.getElementById('anim-mode-row');
 
-    if (webcamActive) {
-        animBtn.classList.remove('active');
+    // Reset all
+    animBtn.classList.remove('active');
+    wfBtn.classList.remove('active');
+    wcBtn.classList.remove('active', 'webcam-active');
+    animRow.classList.add('hidden');
+    wfRow.classList.add('hidden');
+    wfModeRow.classList.add('hidden');
+    wcRow.classList.add('hidden');
+    if (animModeRow) animModeRow.classList.add('hidden');
+
+    if (waveformActive) {
+        wfBtn.classList.add('active');
+        wfRow.classList.remove('hidden');
+        wfModeRow.classList.remove('hidden');
+        // Update waveform nav labels
+        document.getElementById('wf-name').textContent = state.waveform_name || '—';
+        document.getElementById('wf-sub').textContent = `Waveform ${(state.waveform_idx || 0) + 1}/${state.waveform_count || 6}`;
+        document.getElementById('wf-pal-name').textContent = state.palette_name || '—';
+        document.getElementById('wf-pal-sub').textContent = `Palette ${(state.palette_idx || 0) + 1}/${state.palette_count || 32}`;
+        // Update sub-mode buttons
+        const defBtn = document.getElementById('wf-mode-default-btn');
+        const audBtn = document.getElementById('wf-mode-audio-btn');
+        if (waveformAudioMode) {
+            defBtn.classList.remove('active');
+            audBtn.classList.add('active');
+        } else {
+            defBtn.classList.add('active');
+            audBtn.classList.remove('active');
+        }
+    } else if (webcamActive) {
         wcBtn.classList.add('active', 'webcam-active');
-        animRow.classList.add('hidden');
         wcRow.classList.remove('hidden');
     } else {
         animBtn.classList.add('active');
-        wcBtn.classList.remove('active', 'webcam-active');
         animRow.classList.remove('hidden');
-        wcRow.classList.add('hidden');
+        if (animModeRow) animModeRow.classList.remove('hidden');
     }
 }
 
@@ -996,9 +1133,55 @@ document.getElementById('cycle-interval').addEventListener('change', () => {
 // Source toggle
 document.getElementById('source-anim-btn').addEventListener('click', () => {
     if (webcamActive) stopWebcam();
+    if (waveformActive) stopWaveform();
+});
+document.getElementById('source-waveform-btn').addEventListener('click', () => {
+    if (webcamActive) stopWebcam();
+    if (!waveformActive) startWaveform();
 });
 document.getElementById('source-webcam-btn').addEventListener('click', () => {
+    if (waveformActive) stopWaveform();
     if (!webcamActive) startWebcam();
+});
+
+// Waveform nav
+document.getElementById('wf-prev').addEventListener('click', () => {
+    const idx = ((state.waveform_idx || 0) - 1 + (state.waveform_count || 6)) % (state.waveform_count || 6);
+    send({ cmd: 'set_waveform_idx', idx });
+});
+document.getElementById('wf-next').addEventListener('click', () => {
+    const idx = ((state.waveform_idx || 0) + 1) % (state.waveform_count || 6);
+    send({ cmd: 'set_waveform_idx', idx });
+});
+document.getElementById('wf-pal-prev').addEventListener('click', () => {
+    const idx = ((state.palette_idx || 0) - 1 + (state.palette_count || 32)) % (state.palette_count || 32);
+    send({ cmd: 'set_palette', idx });
+});
+document.getElementById('wf-pal-next').addEventListener('click', () => {
+    const idx = ((state.palette_idx || 0) + 1) % (state.palette_count || 32);
+    send({ cmd: 'set_palette', idx });
+});
+
+// FX nav buttons (pattern row)
+document.getElementById('fx-prev').addEventListener('click', () => cycleFX(-1));
+document.getElementById('fx-next').addEventListener('click', () => cycleFX(1));
+
+// FX nav buttons (waveform row)
+document.getElementById('wf-fx-prev').addEventListener('click', () => cycleFX(-1));
+document.getElementById('wf-fx-next').addEventListener('click', () => cycleFX(1));
+
+// Waveform sub-mode toggle
+document.getElementById('wf-mode-default-btn').addEventListener('click', () => {
+    waveformAudioMode = false;
+    send({ cmd: 'set_waveform_audio', on: false });
+    stopWaveformAudio();
+    updateSourceUI();
+});
+document.getElementById('wf-mode-audio-btn').addEventListener('click', () => {
+    waveformAudioMode = true;
+    send({ cmd: 'set_waveform_audio', on: true });
+    startWaveformAudio();
+    updateSourceUI();
 });
 
 // Webcam palette nav (duplicates for the webcam row)
@@ -1052,6 +1235,10 @@ document.addEventListener('keydown', (e) => {
         case 'c': case 'C':
             e.preventDefault();
             toggleCycle();
+            break;
+        case 'v': case 'V':
+            e.preventDefault();
+            if (waveformActive) stopWaveform(); else startWaveform();
             break;
         case 'w': case 'W':
             e.preventDefault();
@@ -1313,8 +1500,9 @@ function updateAnimModeUI() {
     if (midBar) midBar.style.display = mode === 'bpm' ? 'none' : '';
     if (trebleBar) trebleBar.style.display = mode === 'bpm' ? 'none' : '';
 
-    // Hide speed slider when any audio mode is active
-    if (speedRow) speedRow.style.display = showControls ? 'none' : '';
+    // Hide BPM slider when any audio mode is active OR waveform audio sub-mode
+    const hideSpeed = showControls || (waveformActive && waveformAudioMode);
+    if (speedRow) speedRow.style.display = hideSpeed ? 'none' : '';
 
     // Hide animation mode row when webcam is active
     if (animModeRow) animModeRow.style.display = state.webcam_mode ? 'none' : '';

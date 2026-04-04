@@ -13,6 +13,7 @@ trigger visual beats. This eliminates jitter from sloppy beat detection.
 """
 import math
 import time
+import numpy as np
 
 
 AUDIO_MODES = [
@@ -56,6 +57,12 @@ class AudioEngine:
         self.audio_time = 0.0
         self._step_per_beat = 0.4
 
+        # FFT and time-domain data for waveform visualizations
+        self.fft_data = np.zeros(128, dtype=np.float32)
+        self.td_data = np.full(128, 128.0, dtype=np.float32)  # centered at 128
+        self.fft_history = np.zeros((64, 128), dtype=np.float32)  # ring buffer for waterfall
+        self._fft_history_idx = 0
+
     def reset(self):
         self.bass = self.mid = self.treble = 0.0
         self.bass_smooth = self.mid_smooth = self.treble_smooth = 0.0
@@ -66,6 +73,10 @@ class AudioEngine:
         self._beat_count = 0
         self._beat_phase = 0.0
         self.audio_time = 0.0
+        self.fft_data[:] = 0
+        self.td_data[:] = 128
+        self.fft_history[:] = 0
+        self._fft_history_idx = 0
 
     def set_mode(self, mode):
         if mode not in ("none", "audio", "bpm"):
@@ -100,6 +111,21 @@ class AudioEngine:
         self.bass = min(1.0, bass * s)
         self.mid = min(1.0, mid * s)
         self.treble = min(1.0, treble * s)
+
+    def update_fft(self, fft_bins, td_samples):
+        """Update FFT frequency and time-domain data from browser.
+
+        Args:
+            fft_bins: 128 frequency-domain values (0-255)
+            td_samples: 128 time-domain values (0-255, centered at 128)
+        """
+        if fft_bins is not None and len(fft_bins) >= 128:
+            self.fft_data[:] = np.array(fft_bins[:128], dtype=np.float32)
+            # Push to history ring buffer for waterfall
+            self.fft_history[self._fft_history_idx] = self.fft_data
+            self._fft_history_idx = (self._fft_history_idx + 1) % 64
+        if td_samples is not None and len(td_samples) >= 128:
+            self.td_data[:] = np.array(td_samples[:128], dtype=np.float32)
 
     def on_beat(self, bpm):
         """Called when browser detects a beat.

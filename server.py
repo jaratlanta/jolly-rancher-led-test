@@ -89,6 +89,12 @@ async def get_audio_modes():
     return JSONResponse(AUDIO_MODES)
 
 
+@app.get("/api/waveforms")
+async def get_waveforms():
+    from ledtest.waveforms import WAVEFORMS
+    return JSONResponse([{"name": w["name"]} for w in WAVEFORMS])
+
+
 @app.get("/api/presets")
 async def get_presets_api():
     return JSONResponse(get_presets())
@@ -109,9 +115,18 @@ async def websocket_endpoint(ws: WebSocket):
     try:
         while True:
             raw = await ws.receive()
-            # Binary messages are webcam brightness frames
+            # Binary messages: byte 0 = type marker
+            # 0x02 = FFT+TD waveform data (257 bytes: 1 marker + 128 FFT + 128 TD)
+            # Otherwise = webcam brightness frame
             if raw.get("type") == "websocket.receive" and "bytes" in raw and raw["bytes"]:
-                engine.receive_webcam_frame(raw["bytes"])
+                raw_bytes = raw["bytes"]
+                if len(raw_bytes) == 257 and raw_bytes[0] == 0x02:
+                    # Waveform FFT + time-domain data
+                    fft_bins = list(raw_bytes[1:129])
+                    td_samples = list(raw_bytes[129:257])
+                    engine.audio.update_fft(fft_bins, td_samples)
+                else:
+                    engine.receive_webcam_frame(raw_bytes)
                 continue
 
             msg = raw.get("text", "")
@@ -142,6 +157,12 @@ async def websocket_endpoint(ws: WebSocket):
                 engine.set_symmetry(data.get("on", True))
             elif cmd == "set_webcam":
                 engine.set_webcam(data.get("on", False))
+            elif cmd == "set_waveform":
+                engine.set_waveform(data.get("on", False))
+            elif cmd == "set_waveform_idx":
+                engine.set_waveform_idx(data["idx"])
+            elif cmd == "set_waveform_audio":
+                engine.set_waveform_audio(data.get("on", False))
             elif cmd == "set_audio_mode":
                 engine.set_audio_mode(data["key"])
             elif cmd == "set_audio_sensitivity":

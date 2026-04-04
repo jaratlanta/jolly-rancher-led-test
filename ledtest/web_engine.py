@@ -14,6 +14,7 @@ from .mapping import build_mapping, build_multi_panel_mapping, frame_to_pixels
 from .universe import SACNOutput
 from .animations import PATTERNS, PALETTES, palette_color
 from .patterns import PATTERNS as DIAG_PATTERNS
+from .waveforms import WAVEFORMS, WAVEFORM_COUNT
 from .fx import FXEngine as FXProcessor, FX_LIST
 from .audio_fx import AudioEngine, AUDIO_MODES
 from .models import get_model, get_model_list
@@ -48,6 +49,11 @@ class FrameEngine:
 
         # Symmetry mode for bull's head (left mirrors right)
         self.symmetry = True
+
+        # Waveform mode
+        self.waveform_mode = False
+        self.waveform_idx = 0
+        self.waveform_audio = False  # DEFAULT or AUDIO sub-mode
 
         # Webcam mode
         self.webcam_mode = False
@@ -217,8 +223,27 @@ class FrameEngine:
 
     # ─── Webcam ────────────────────────────────────────────────────────────
 
+    def set_waveform(self, on):
+        """Toggle waveform mode on/off."""
+        self.waveform_mode = bool(on)
+        if on:
+            self.webcam_mode = False  # mutually exclusive
+
+    def set_waveform_idx(self, idx):
+        """Set waveform pattern index."""
+        new_idx = idx % WAVEFORM_COUNT
+        if new_idx != self.waveform_idx:
+            self._start_crossfade()
+        self.waveform_idx = new_idx
+
+    def set_waveform_audio(self, on):
+        """Toggle waveform AUDIO sub-mode (vs DEFAULT)."""
+        self.waveform_audio = bool(on)
+
     def set_webcam(self, on):
         self.webcam_mode = bool(on)
+        if on:
+            self.waveform_mode = False  # mutually exclusive
         if not on:
             with self._webcam_lock:
                 self._webcam_brightness = None
@@ -243,6 +268,82 @@ class FrameEngine:
                 val = int(brightness[y][x])
                 r, g, b = palette_color(val, self.palette_idx)
                 frame[y][x] = [r, g, b]
+        return self._mirror_left_right(frame)
+
+    # ─── Waveform Frame Generation ────────────────────────────────────────
+
+    def _generate_waveform_frame(self):
+        """Generate a waveform frame — waveforms render RGB directly.
+
+        New architecture: waveform render functions receive the full frame
+        and draw directly into it with RGB colors. This enables rainbow
+        gradients, persistence/trails, multi-color layering, etc.
+
+        Palette colors are passed so waveforms can bias their rainbow
+        toward the selected palette's color scheme.
+        """
+        from .waveforms import set_palette_bias
+        t = (time.monotonic() - self._start_time) * self.speed
+        wf = WAVEFORMS[self.waveform_idx]
+        h, w = self.height, self.width
+        frame = np.zeros((h, w, 3), dtype=np.uint8)
+
+        # Pass current palette colors to waveform renderer
+        pal = PALETTES[self.palette_idx]
+        set_palette_bias(pal["colors"])
+
+        if self.waveform_audio and self.audio.enabled:
+            render_fn = wf.get("audio_render", wf.get("render"))
+            fft = self.audio.fft_data
+            td = self.audio.td_data
+            bass = self.audio.bass_smooth
+            mid = self.audio.mid_smooth
+            treble = self.audio.treble_smooth
+            if render_fn:
+                try:
+                    render_fn(frame, w, h, t, fft, td, bass, mid, treble)
+                except Exception:
+                    pass
+        else:
+            render_fn = wf.get("render")
+            if render_fn:
+                try:
+                    render_fn(frame, w, h, t, None, None, 0, 0, 0)
+                except Exception:
+                    pass
+
+        return self._mirror_left_right(frame)
+
+    # ─── Left/Right Panel Mirroring ───────────────────────────────────────
+
+    def _mirror_left_right(self, frame):
+        """Copy Left Side panel content to Right Side (horizontally flipped).
+
+        Only applies to models with 'left' and 'right' surfaces.
+        Makes the two sides show identical (mirrored) content.
+        """
+        surfaces = self.model_info.get("surfaces", {})
+        if "left" not in surfaces or "right" not in surfaces:
+            return frame
+
+        left_s = surfaces["left"]
+        right_s = surfaces["right"]
+
+        left_start = left_s["col_start"]
+        left_cols = left_s["total_cols"]
+        right_start = right_s["col_start"]
+        right_cols = right_s["total_cols"]
+
+        # Only mirror if they have the same width
+        cols_to_copy = min(left_cols, right_cols)
+
+        for y in range(frame.shape[0]):
+            for i in range(cols_to_copy):
+                src_x = left_start + i
+                dst_x = right_start + (cols_to_copy - 1 - i)  # flipped
+                if src_x < frame.shape[1] and dst_x < frame.shape[1]:
+                    frame[y][dst_x] = frame[y][src_x]
+
         return frame
 
     # ─── Diagnostics ───────────────────────────────────────────────────────
@@ -296,6 +397,11 @@ class FrameEngine:
             "fx_intensity": self.fx.intensity,
             "symmetry": self.symmetry,
             "webcam_mode": self.webcam_mode,
+            "waveform_mode": self.waveform_mode,
+            "waveform_idx": self.waveform_idx,
+            "waveform_name": WAVEFORMS[self.waveform_idx]["name"] if self.waveform_idx < WAVEFORM_COUNT else "?",
+            "waveform_count": WAVEFORM_COUNT,
+            "waveform_audio": self.waveform_audio,
             "audio_mode": self.audio._mode,
             "audio_sensitivity": self.audio.sensitivity,
             "audio_enabled": self.audio.enabled,
@@ -381,7 +487,8 @@ class FrameEngine:
         elif self.model_type == "composite":
             return self._generate_composite_frame(t, pattern, render_mode)
         else:
-            return self._generate_grid_frame(t, pattern, render_mode)
+            frame = self._generate_grid_frame(t, pattern, render_mode)
+            return self._mirror_left_right(frame)
 
     def _generate_grid_frame(self, t, pattern, render_mode):
         """Generate frame for grid (panel) models."""
@@ -572,6 +679,8 @@ class FrameEngine:
                 frame_rgb = np.zeros((self.height, self.width, 3), dtype=np.uint8)
             elif self.webcam_mode:
                 frame_rgb = self._generate_webcam_frame()
+            elif self.waveform_mode:
+                frame_rgb = self._generate_waveform_frame()
             elif self.diagnostic_mode and self.diagnostic_gen:
                 try:
                     frame_rgb = next(self.diagnostic_gen)

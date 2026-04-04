@@ -603,32 +603,32 @@ def _ripple_core(engine, frame, dt, damping, edge_mult_scale, trough_scale,
     """Shared ripple physics engine. Variants just tune parameters."""
     f = frame.astype(np.float32)
     h, w = engine.height, engine.width
-    strength = 0.5 + engine.intensity * 2.5
+    strength = 0.3 + engine.intensity * 1.2  # gentler: was 0.5 + 2.5
 
     bright = f.max(axis=2)
 
-    # Motion injection
+    # Motion injection (reduced)
     if engine._prev_frame is not None:
         diff = np.abs(f.mean(axis=2) - engine._prev_frame.astype(np.float32).mean(axis=2))
         motion_mask = diff > motion_thresh
-        engine._ripple_buf1[motion_mask] += diff[motion_mask] * 0.06 * strength
+        engine._ripple_buf1[motion_mask] += diff[motion_mask] * 0.03 * strength  # was 0.06
 
-    # Edge energy
+    # Edge energy (reduced)
     grad_bx = np.zeros((h, w), dtype=np.float32)
     grad_by = np.zeros((h, w), dtype=np.float32)
     grad_bx[:, 1:-1] = bright[:, 2:] - bright[:, :-2]
     grad_by[1:-1, :] = bright[2:, :] - bright[:-2, :]
     edge_energy = np.sqrt(grad_bx**2 + grad_by**2) / 255.0
-    engine._ripple_buf1 += edge_energy * inject_edge * strength
+    engine._ripple_buf1 += edge_energy * inject_edge * strength * 0.5  # halved
 
-    # Random drops
-    bright_ys, bright_xs = np.where(bright > 80)
+    # Random drops (fewer, gentler)
+    bright_ys, bright_xs = np.where(bright > 100)  # higher threshold
     if len(bright_ys) > 0:
         num = min(inject_drops, len(bright_ys))
         indices = np.random.choice(len(bright_ys), num, replace=False)
         for idx in indices:
             dy, dx = int(bright_ys[idx]), int(bright_xs[idx])
-            engine._ripple_buf1[dy, dx] += drop_strength * strength
+            engine._ripple_buf1[dy, dx] += drop_strength * strength * 0.5  # halved
 
     # Wave equation
     padded = np.pad(engine._ripple_buf1, 1, mode='edge')
@@ -645,7 +645,7 @@ def _ripple_core(engine, frame, dt, damping, edge_mult_scale, trough_scale,
     grad_x[:, 1:-1] = ripple[:, 2:] - ripple[:, :-2]
     grad_y[1:-1, :] = ripple[2:, :] - ripple[:-2, :]
 
-    disp = disp_scale_base + engine.intensity * 3.0
+    disp = disp_scale_base + engine.intensity * 1.5
     yy, xx = np.meshgrid(np.arange(h), np.arange(w), indexing='ij')
     src_x = np.clip((xx + grad_x * disp).astype(int), 0, w - 1)
     src_y = np.clip((yy + grad_y * disp).astype(int), 0, h - 1)
@@ -680,11 +680,11 @@ def fx_ripple_soft(engine, frame, dt):
                         disp_scale_base=0.5)
 
 def fx_ripple_deep(engine, frame, dt):
-    """Deep Ripple — heavy, slow waves with strong displacement like deep water."""
+    """Deep Ripple — heavy, slow waves with moderate displacement like deep water."""
     return _ripple_core(engine, frame, dt,
-                        damping=0.98, edge_mult_scale=6, trough_scale=5,
-                        inject_edge=0.05, inject_drops=2, drop_strength=0.3,
-                        disp_scale_base=2.0)
+                        damping=0.98, edge_mult_scale=4, trough_scale=3,
+                        inject_edge=0.04, inject_drops=2, drop_strength=0.2,
+                        disp_scale_base=1.0)
 
 def fx_ripple_rain(engine, frame, dt):
     """Rain Ripple — many small drops constantly hitting the surface."""
@@ -694,11 +694,11 @@ def fx_ripple_rain(engine, frame, dt):
                         disp_scale_base=1.0)
 
 def fx_ripple_glass(engine, frame, dt):
-    """Glass Ripple — frosted glass refraction with high displacement, minimal edge glow."""
+    """Glass Ripple — frosted glass refraction with moderate displacement, minimal edge glow."""
     return _ripple_core(engine, frame, dt,
                         damping=0.95, edge_mult_scale=1, trough_scale=1,
-                        inject_edge=0.06, inject_drops=2, drop_strength=0.25,
-                        disp_scale_base=3.0)
+                        inject_edge=0.04, inject_drops=2, drop_strength=0.2,
+                        disp_scale_base=1.2)
 
 def fx_ripple_cymatics(engine, frame, dt):
     """Cymatics Ripple — standing wave patterns with sustained resonance."""
@@ -710,9 +710,9 @@ def fx_ripple_cymatics(engine, frame, dt):
 def fx_ripple_shatter(engine, frame, dt):
     """Shatter Ripple — sharp, angular distortion like cracked glass."""
     return _ripple_core(engine, frame, dt,
-                        damping=0.92, edge_mult_scale=12, trough_scale=6,
-                        inject_edge=0.03, inject_drops=1, drop_strength=0.5,
-                        disp_scale_base=2.5, motion_thresh=5)
+                        damping=0.92, edge_mult_scale=6, trough_scale=3,
+                        inject_edge=0.03, inject_drops=1, drop_strength=0.3,
+                        disp_scale_base=1.2, motion_thresh=5)
 
 
 # ─── Gentle Cymatics variants (less disruption than Cymatics Ripple) ─────────
