@@ -309,11 +309,10 @@ class FrameEngine:
             render_fn = wf.get("render")
             if render_fn:
                 try:
-                    # DEFAULT mode: pass small simulated audio so patterns
-                    # still animate interestingly (not static)
-                    sim_bass = 0.3 + 0.2 * math.sin(t * 1.5)
-                    sim_mid = 0.2 + 0.15 * math.sin(t * 2.0)
-                    sim_treble = 0.15 + 0.1 * math.sin(t * 3.0)
+                    # DEFAULT mode: gentle slow oscillation for subtle animation
+                    sim_bass = 0.2 + 0.15 * math.sin(t * 0.3)
+                    sim_mid = 0.15 + 0.1 * math.sin(t * 0.4)
+                    sim_treble = 0.1 + 0.08 * math.sin(t * 0.5)
                     render_fn(frame, w, h, t, None, None, sim_bass, sim_mid, sim_treble)
                 except Exception:
                     pass

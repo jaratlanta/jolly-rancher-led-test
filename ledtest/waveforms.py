@@ -1149,13 +1149,22 @@ def _cym_diamonds_fn(nx, ny, t):
     return _hsv_rgb(hue, 0.5, min(1.0, val * 1.2))
 
 def _cym_grid_fn(nx, ny, t):
+    """Cymatics Grid — tested and approved via test harness.
+    Uses the _vis_render bass/mid/treble params via time modulation.
+    For direct audio control, use _cym_grid_audio_fn.
+    """
     r = math.sqrt(nx * nx + ny * ny)
     theta = math.atan2(ny, nx)
-    p1 = math.cos(r * 5.0 - t * 0.4) + math.cos(4.0 * theta)
-    p2 = math.cos(r * 8.0 + t * 0.3) * math.cos(6.0 * theta + math.pi / 4)
-    val = max(_nodal_line(p1, 0.25), _nodal_line(p2, 0.2) * 0.6)
-    hue = (0.5 + theta / (2.0 * math.pi) * 0.2 + t * 0.015) % 1.0
-    return _hsv_rgb(hue, 0.55, min(1.0, val * 1.1))
+    r_freq1 = 3.5
+    n_angular = 4.0
+    r_freq2 = 6.0
+    rotation = t * 0.1
+    p1 = math.cos(r * r_freq1 - rotation) + math.cos(n_angular * theta)
+    p2 = math.cos(r * r_freq2 + rotation * 0.7) * math.cos((n_angular + 2) * theta + math.pi / 4)
+    val = max(_nodal_line(p1, 0.22), _nodal_line(p2, 0.18) * 0.3)
+    hue = (theta / (2.0 * math.pi) * 0.6 + r * 0.8 + t * 0.02) % 1.0
+    sat = min(1.0, 0.75 + 0.15 * math.sin(r * 5.0 + theta * 2.0))
+    return _hsv_rgb(hue, sat, min(1.0, val * 1.2))
 
 def _cym_flower_fn(nx, ny, t):
     r = math.sqrt(nx * nx + ny * ny)
@@ -1178,7 +1187,40 @@ def _render_cym_diamonds(frame, w, h, t, fft, td, bass, mid, treble):
     _vis_render(frame, w, h, t, _cym_diamonds_fn, bass, mid, treble)
 
 def _render_cym_grid(frame, w, h, t, fft, td, bass, mid, treble):
-    _vis_render(frame, w, h, t, _cym_grid_fn, bass, mid, treble)
+    """Cym Grid with direct per-band audio reactivity.
+    Bass → ring spacing, Mid → symmetry order, Treble → detail + rotation.
+    """
+    aspect = w / max(h, 1)
+
+    for y_px in range(h):
+        ny = y_px / max(h - 1, 1) - 0.5
+        for x_px in range(w):
+            nx = (x_px / max(w - 1, 1) - 0.5) * aspect
+            r = math.sqrt(nx * nx + ny * ny)
+            theta = math.atan2(ny, nx)
+
+            # Each audio band drives a different visual dimension
+            r_freq1 = 3.5 + bass * 5.0            # bass: ring spacing
+            n_angular = 4.0 + mid * 6.0            # mid: symmetry order
+            r_freq2 = 6.0 + treble * 6.0           # treble: secondary detail
+            rotation = t * 0.1 + treble * 1.5      # treble: rotation speed
+            secondary_mix = 0.3 + treble * 0.5     # treble: 2nd layer visibility
+
+            p1 = math.cos(r * r_freq1 - rotation) + math.cos(n_angular * theta)
+            p2 = math.cos(r * r_freq2 + rotation * 0.7) * math.cos((n_angular + 2) * theta + math.pi / 4)
+
+            val = max(_nodal_line(p1, 0.22), _nodal_line(p2, 0.18) * secondary_mix)
+
+            if val > 0.02:
+                hue = (theta / (2.0 * math.pi) * 0.6 + r * 0.8 + t * 0.02) % 1.0
+                sat = min(1.0, 0.75 + 0.15 * math.sin(r * 5.0 + theta * 2.0))
+                rc, gc, bc = colorsys.hsv_to_rgb(hue % 1.0, sat, min(1.0, val * 1.2))
+                pr = min(255, int(rc * 255 * _BRIGHTNESS_BOOST))
+                pg = min(255, int(gc * 255 * _BRIGHTNESS_BOOST))
+                pb = min(255, int(bc * 255 * _BRIGHTNESS_BOOST))
+                frame[y_px, x_px, 0] = max(frame[y_px, x_px, 0], pr)
+                frame[y_px, x_px, 1] = max(frame[y_px, x_px, 1], pg)
+                frame[y_px, x_px, 2] = max(frame[y_px, x_px, 2], pb)
 
 def _render_cym_flower(frame, w, h, t, fft, td, bass, mid, treble):
     _vis_render(frame, w, h, t, _cym_flower_fn, bass, mid, treble)
