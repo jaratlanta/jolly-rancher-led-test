@@ -1187,10 +1187,23 @@ def _render_cym_diamonds(frame, w, h, t, fft, td, bass, mid, treble):
     _vis_render(frame, w, h, t, _cym_diamonds_fn, bass, mid, treble)
 
 def _render_cym_grid(frame, w, h, t, fft, td, bass, mid, treble):
-    """Cym Grid with direct per-band audio reactivity.
-    Bass → ring spacing, Mid → symmetry order, Treble → detail + rotation.
+    """Cym Grid with direct FFT + band audio reactivity.
+    Uses FFT bins for per-column modulation (like Frequency Bars does).
+    Bass → ring spacing, Mid → symmetry, Treble → detail + rotation.
+    FFT → per-column brightness boost for obvious audio response.
     """
     aspect = w / max(h, 1)
+
+    # Pre-compute per-column FFT energy for fast lookup
+    col_energy = np.zeros(w, dtype=np.float32)
+    if fft is not None:
+        for x in range(w):
+            bi = min(127, int((x / max(w - 1, 1)) * 100))
+            col_energy[x] = fft[bi] / 255.0
+            # Smooth with neighbors
+            for o in [-1, 1]:
+                nb = min(127, max(0, bi + o))
+                col_energy[x] = max(col_energy[x], fft[nb] / 255.0 * 0.6)
 
     for y_px in range(h):
         ny = y_px / max(h - 1, 1) - 0.5
@@ -1199,17 +1212,22 @@ def _render_cym_grid(frame, w, h, t, fft, td, bass, mid, treble):
             r = math.sqrt(nx * nx + ny * ny)
             theta = math.atan2(ny, nx)
 
-            # Each audio band drives a different visual dimension
-            r_freq1 = 3.5 + bass * 5.0            # bass: ring spacing
-            n_angular = 4.0 + mid * 6.0            # mid: symmetry order
-            r_freq2 = 6.0 + treble * 6.0           # treble: secondary detail
-            rotation = t * 0.1 + treble * 1.5      # treble: rotation speed
-            secondary_mix = 0.3 + treble * 0.5     # treble: 2nd layer visibility
+            # Audio bands drive structural changes
+            r_freq1 = 3.5 + bass * 5.0
+            n_angular = 4.0 + mid * 6.0
+            r_freq2 = 6.0 + treble * 6.0
+            rotation = t * 0.1 + treble * 1.5
+            secondary_mix = 0.3 + treble * 0.5
 
             p1 = math.cos(r * r_freq1 - rotation) + math.cos(n_angular * theta)
             p2 = math.cos(r * r_freq2 + rotation * 0.7) * math.cos((n_angular + 2) * theta + math.pi / 4)
 
             val = max(_nodal_line(p1, 0.22), _nodal_line(p2, 0.18) * secondary_mix)
+
+            # FFT boost: per-column energy makes the pattern pulse with the music
+            if fft is not None:
+                fft_boost = col_energy[x_px]
+                val = val * (0.3 + fft_boost * 1.5)  # dim without audio, bright with
 
             if val > 0.02:
                 hue = (theta / (2.0 * math.pi) * 0.6 + r * 0.8 + t * 0.02) % 1.0
@@ -1500,23 +1518,25 @@ def _render_cymatics_web(frame, w, h, t, fft, td, bass, mid, treble):
 # ─── Registry ────────────────────────────────────────────────────────────────
 
 WAVEFORMS = [
-    # ── Kaleidoscopes (bold symmetric patterns, approved via test harness) ──
+    # ── #1 Frequency Bars (proven audio-reactive reference) ──
+    {"name": "Frequency Bars",    "render": _render_freq_bars},
+    # ── #2 Cymatics Grid (holographic, per-band + FFT reactive) ──
+    {"name": "Cym Grid",          "render": _render_cym_grid},
+    # ── Kaleidoscopes ──
     {"name": "Kal Crystal",       "render": _render_kal_crystal},
     {"name": "Kal Pulse",         "render": _render_kal_pulse},
     {"name": "Kal Star",          "render": _render_kal_star},
     {"name": "Kal Mandala",       "render": _render_kal_mandala},
-    # ── Cymatics (thin lines on dark, geometric nodal patterns) ──
+    # ── Cymatics ──
     {"name": "Cym Circles",       "render": _render_cym_circles},
     {"name": "Cym Diamonds",      "render": _render_cym_diamonds},
-    {"name": "Cym Grid",          "render": _render_cym_grid},
     {"name": "Cym Flower",        "render": _render_cym_flower},
-    # ── Waveforms (bold flowing curves) ──
+    # ── Waveforms ──
     {"name": "Wave Multi",        "render": _render_wf_multi_sine},
     {"name": "Wave Ocean",        "render": _render_wf_ocean},
     {"name": "Wave Cross",        "render": _render_wf_interference},
     {"name": "Wave Pulse",        "render": _render_wf_pulse},
-    # ── Classic visualizers (kept from earlier) ──
-    {"name": "Frequency Bars",    "render": _render_freq_bars},
+    # ── Classic ──
     {"name": "Spectrum Mirror",   "render": _render_spectrum_mirror},
     {"name": "Bar Wave",          "render": _render_bar_wave},
     {"name": "Freq Cardiogram",   "render": _render_freq_cardio},
