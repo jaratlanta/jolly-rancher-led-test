@@ -1025,37 +1025,23 @@ def _vis_pixel(frame, y, x, hue, val, sat=0.8):
 
 
 def _vis_render(frame, w, h, t, func, bass=0, mid=0, treble=0, fft=None):
-    """Render a (nx, ny, t) -> (r,g,b) function into a frame with square aspect.
+    """Render a pattern function into a frame with square aspect.
 
-    Uses beat_push for animation timing. FFT data modulates brightness per-column
-    so the pattern visibly responds to each frequency in the music.
+    Pattern functions receive (nx, ny, t, bass, mid, treble, beat_push)
+    so they can morph their SHAPE with audio, not just brightness.
+    Uses _rainbow_color for palette-influenced coloring.
     """
     aspect = w / max(h, 1)
-
-    # Beat-driven time for animation
-    effective_t = _current_beat_push * 0.5 + t * 0.05
-
-    # Pre-compute per-column FFT energy for audio reactivity
-    col_energy = None
-    if fft is not None:
-        col_energy = np.zeros(w, dtype=np.float32)
-        for x in range(w):
-            bi = min(127, int((x / max(w - 1, 1)) * 100))
-            col_energy[x] = fft[bi] / 255.0
-            for o in [-1, 1]:
-                nb = min(127, max(0, bi + o))
-                col_energy[x] = max(col_energy[x], fft[nb] / 255.0 * 0.5)
+    bp = _current_beat_push
+    effective_t = bp * 0.5 + t * 0.05
 
     for y_px in range(h):
         ny = y_px / max(h - 1, 1) - 0.5
         for x_px in range(w):
             nx = (x_px / max(w - 1, 1) - 0.5) * aspect
-            r, g, b = func(nx, ny, effective_t)
+            r, g, b = func(nx, ny, effective_t, bass, mid, treble, bp)
             if r > 2 or g > 2 or b > 2:
-                # FFT modulation: per-column brightness scales with frequency energy
                 boost = _BRIGHTNESS_BOOST
-                if col_energy is not None:
-                    boost *= (0.3 + col_energy[x_px] * 2.0)  # dim in silence, bright with sound
                 frame[y_px, x_px, 0] = min(255, max(frame[y_px, x_px, 0], int(r * boost)))
                 frame[y_px, x_px, 1] = min(255, max(frame[y_px, x_px, 1], int(g * boost)))
                 frame[y_px, x_px, 2] = min(255, max(frame[y_px, x_px, 2], int(b * boost)))
@@ -1063,7 +1049,7 @@ def _vis_render(frame, w, h, t, func, bass=0, mid=0, treble=0, fft=None):
 
 # ─── Kaleidoscopes (kept from approved round) ────────────────────────────────
 
-def _kal_crystal_fn(nx, ny, t):
+def _kal_crystal_fn(nx, ny, t, bass=0, mid=0, treble=0, bp=0):
     r = math.sqrt(nx * nx + ny * ny)
     theta = math.atan2(ny, nx)
     sector = math.pi / 3
@@ -1071,60 +1057,65 @@ def _kal_crystal_fn(nx, ny, t):
     local_angle = theta - sector_idx * sector
     if sector_idx % 2 == 1:
         local_angle = sector - local_angle
-    v1 = abs(math.sin(nx * 6.0 + t * 0.5)) * abs(math.cos(ny * 6.0 - t * 0.3))
-    v2 = abs(math.sin(r * 8.0 - t * 0.8))
-    v3 = abs(math.cos(6.0 * theta + t * 0.2))
+    # Audio morphs the spatial frequencies
+    sf = 6.0 + bass * 4.0  # bass stretches/compresses
+    rf = 8.0 + mid * 5.0   # mid changes ring count
+    af = 6.0 + treble * 4.0  # treble changes angular detail
+    v1 = abs(math.sin(nx * sf + t * 0.5)) * abs(math.cos(ny * sf - t * 0.3))
+    v2 = abs(math.sin(r * rf - bp * 1.0))  # beat_push drives ring expansion
+    v3 = abs(math.cos(af * theta + t * 0.2))
     combined = v1 * 0.4 + v2 * 0.3 + v3 * 0.3
-    combined *= (0.5 + 0.5 * math.cos(local_angle * 6.0))
+    combined *= (0.5 + 0.5 * math.cos(local_angle * af))
     val = min(1.0, combined * 1.5)
     fade = max(0.05, 1.0 - r * 0.15)
     val *= fade
     hue = (local_angle / sector * 0.5 + r * 0.4 + t * 0.03) % 1.0
-    return _hsv_rgb(hue, 0.85, val)
+    return _rainbow_color(hue, t, speed=0.0, value=val)
 
-def _kal_pulse_fn(nx, ny, t):
+def _kal_pulse_fn(nx, ny, t, bass=0, mid=0, treble=0, bp=0):
     r = math.sqrt(nx * nx + ny * ny)
     theta = math.atan2(ny, nx)
-    pulse = 1.0 + 0.3 * math.sin(t * 2.0)
-    ring_freq = 8.0 * pulse
-    n_angular = 8
-    v1 = math.cos(r * ring_freq) * math.cos(n_angular * theta)
-    v2 = math.cos(r * ring_freq * 1.6) * math.cos(n_angular * 2 * theta) * 0.4
-    v3 = math.cos(r * ring_freq * 2.3) * math.cos(n_angular * 3 * theta + t * 0.2) * 0.2
+    # Audio morphs pulse and symmetry
+    n_angular = 6 + int(mid * 6)  # mid changes symmetry order
+    ring_freq = 6.0 + bass * 4.0  # bass changes ring spacing
+    v1 = math.cos(r * ring_freq - bp * 1.5) * math.cos(n_angular * theta)
+    v2 = math.cos(r * ring_freq * 1.6 - bp * 0.8) * math.cos(n_angular * 2 * theta) * 0.4
+    v3 = math.cos(r * ring_freq * 2.3 - bp * 0.5) * math.cos(n_angular * 3 * theta + t * 0.2) * 0.2
     val = max(0, min(1.0, (v1 + v2 + v3 + 1.6) / 3.0))
     fade = max(0.05, 1.0 - r * 0.15)
     val *= fade
     hue = (theta / (2.0 * math.pi) + 0.5 + r * 0.4) % 1.0
-    return _hsv_rgb(hue, 0.7 + 0.3 * math.sin(r * 5.0), val)
+    return _rainbow_color(hue, t, speed=0.0, value=val)
 
-def _kal_star_fn(nx, ny, t):
+def _kal_star_fn(nx, ny, t, bass=0, mid=0, treble=0, bp=0):
     r = math.sqrt(nx * nx + ny * ny)
     theta = math.atan2(ny, nx)
-    points = int(6 + 2 * math.sin(t * 0.1))
-    sharpness = max(1, 4.0 + 2.0 * math.sin(t * 0.15))
+    points = int(5 + mid * 6)  # mid changes star points
+    sharpness = max(1, 3.0 + treble * 5.0)  # treble sharpens points
     star_r = 1.0 + 0.5 * abs(math.cos(points * theta + t * 0.3)) ** sharpness
-    ring = math.cos(r * 10.0 * star_r - t * 0.8)
-    ring2 = math.cos(r * 18.0 / star_r + t * 0.5) * 0.3
+    ring = math.cos(r * (8.0 + bass * 4.0) * star_r - bp * 1.3)
+    ring2 = math.cos(r * 16.0 / star_r + bp * 0.5) * 0.3
     val = max(0, min(1.0, (ring + ring2 + 1.3) / 2.6))
     fade = max(0.05, 1.0 - r * 0.15)
     val *= fade
     hue = (theta / (2.0 * math.pi) + 0.5 + t * 0.03) % 1.0
-    return _hsv_rgb(hue, 0.85, val)
+    return _rainbow_color(hue, t, speed=0.0, value=val)
 
-def _kal_mandala_fn(nx, ny, t):
+def _kal_mandala_fn(nx, ny, t, bass=0, mid=0, treble=0, bp=0):
     r = math.sqrt(nx * nx + ny * ny)
     theta = math.atan2(ny, nx)
-    n1 = 3.0 + 1.5 * math.sin(t * 0.15)
-    n2 = 6.0 + 2.0 * math.sin(t * 0.1 + 1.0)
-    n3 = 9.0 + 3.0 * math.sin(t * 0.08 + 2.0)
-    v1 = math.cos(r * 8.0 - t) * math.cos(n1 * theta)
-    v2 = math.cos(r * 14.0 + t * 0.6) * math.cos(n2 * theta) * 0.5
-    v3 = math.cos(r * 22.0 - t * 0.3) * math.cos(n3 * theta) * 0.25
+    # Audio morphs all three harmonic layers
+    n1 = 3.0 + bass * 3.0
+    n2 = 6.0 + mid * 4.0
+    n3 = 9.0 + treble * 5.0
+    v1 = math.cos(r * (6.0 + bass * 3.0) - bp * 1.5) * math.cos(n1 * theta)
+    v2 = math.cos(r * 12.0 + bp * 0.7) * math.cos(n2 * theta) * 0.5
+    v3 = math.cos(r * 20.0 - bp * 0.4) * math.cos(n3 * theta) * 0.25
     val = max(0, min(1.0, (v1 + v2 + v3 + 1.75) / 3.5))
     fade = max(0.05, 1.0 - r * 0.15)
     val *= fade
     hue = (theta / (2.0 * math.pi) + 0.5 + t * 0.02) % 1.0
-    return _hsv_rgb(hue, 0.8, val)
+    return _rainbow_color(hue, t, speed=0.0, value=val)
 
 
 def _render_kal_crystal(frame, w, h, t, fft, td, bass, mid, treble):
@@ -1142,24 +1133,25 @@ def _render_kal_mandala(frame, w, h, t, fft, td, bass, mid, treble):
 
 # ─── Cymatics (thin bright lines on dark, geometric patterns) ────────────────
 
-def _cym_circles_fn(nx, ny, t):
+def _cym_circles_fn(nx, ny, t, bass=0, mid=0, treble=0, bp=0):
     r = math.sqrt(nx * nx + ny * ny)
     theta = math.atan2(ny, nx)
-    n, m = 3.0 + 0.5 * math.sin(t * 0.2), 4.0 + 0.5 * math.sin(t * 0.15)
+    n = 3.0 + bass * 2.0
+    m = 4.0 + mid * 2.0
     p1 = math.sin(n * nx * 4.0) * math.sin(m * ny * 8.0) - math.sin(m * nx * 4.0) * math.sin(n * ny * 8.0)
-    p2 = math.cos(r * 6.0 - t * 0.3) * math.cos(4.0 * theta)
+    p2 = math.cos(r * (5.0 + bass * 3.0) - bp * 1.2) * math.cos((4.0 + treble * 3.0) * theta)
     val = max(_nodal_line(p1, 0.18), _nodal_line(p2, 0.2) * 0.7)
     hue = (theta / (2.0 * math.pi) + 0.5 + t * 0.02) % 1.0
-    return _hsv_rgb(hue, 0.5, min(1.0, val * 1.2))
+    return _rainbow_color(hue, t, speed=0.0, value=min(1.0, val * 1.2))
 
-def _cym_diamonds_fn(nx, ny, t):
-    n = 3.0 + 0.5 * math.sin(t * 0.18)
-    m = 4.0 + 0.5 * math.cos(t * 0.12)
+def _cym_diamonds_fn(nx, ny, t, bass=0, mid=0, treble=0, bp=0):
+    n = 3.0 + bass * 2.0
+    m = 4.0 + mid * 2.0
     p1 = math.sin(n * nx * 5.0) * math.sin(m * ny * 10.0) - math.sin(m * nx * 5.0) * math.sin(n * ny * 10.0)
-    p2 = math.cos(n * nx * 3.0 + t * 0.2) * math.cos(m * ny * 6.0 - t * 0.15)
+    p2 = math.cos(n * nx * 3.0 + bp * 0.8) * math.cos(m * ny * 6.0 - bp * 0.5)
     val = max(_nodal_line(p1, 0.2), _nodal_line(p2, 0.2) * 0.6)
     hue = (0.55 + nx * 0.05 + t * 0.02) % 1.0
-    return _hsv_rgb(hue, 0.5, min(1.0, val * 1.2))
+    return _rainbow_color(hue, t, speed=0.0, value=min(1.0, val * 1.2))
 
 def _cym_grid_fn(nx, ny, t):
     """Cymatics Grid — tested and approved via test harness.
@@ -1179,18 +1171,18 @@ def _cym_grid_fn(nx, ny, t):
     sat = min(1.0, 0.75 + 0.15 * math.sin(r * 5.0 + theta * 2.0))
     return _hsv_rgb(hue, sat, min(1.0, val * 1.2))
 
-def _cym_flower_fn(nx, ny, t):
+def _cym_flower_fn(nx, ny, t, bass=0, mid=0, treble=0, bp=0):
     r = math.sqrt(nx * nx + ny * ny)
     theta = math.atan2(ny, nx)
-    petals = 6
-    p1 = math.cos(r * 8.0 + t * 0.3) * math.cos(petals * theta)
-    p2 = math.cos(r * 12.0 - t * 0.2) * math.cos(petals * 2 * theta + math.pi / 6)
+    petals = int(5 + mid * 4)
+    p1 = math.cos(r * (6.0 + bass * 4.0) - bp * 1.2) * math.cos(petals * theta)
+    p2 = math.cos(r * (10.0 + treble * 4.0) + bp * 0.6) * math.cos(petals * 2 * theta + math.pi / 6)
     combined = p1 + p2 * 0.6
     val = _nodal_line(combined, 0.12)
     center_glow = max(0, 0.15 - r * 0.3) if r < 0.5 else 0
     val = max(val, center_glow)
     hue = (0.52 + theta / (2.0 * math.pi) * 0.15 + t * 0.02) % 1.0
-    return _hsv_rgb(hue, 0.5, min(1.0, val * 1.3))
+    return _rainbow_color(hue, t, speed=0.0, value=min(1.0, val * 1.3))
 
 
 def _render_cym_circles(frame, w, h, t, fft, td, bass, mid, treble):
@@ -1266,56 +1258,56 @@ def _render_cym_flower(frame, w, h, t, fft, td, bass, mid, treble):
 
 # ─── Waveforms (bold flowing curves, low complexity for 24px) ────────────────
 
-def _wf_multi_sine_fn(nx, ny, t):
+def _wf_multi_sine_fn(nx, ny, t, bass=0, mid=0, treble=0, bp=0):
     val = 0.0
     for i in range(3):
-        amp = 0.12 + i * 0.06
-        freq = 1.2 + i * 0.4
-        phase = t * (0.5 + i * 0.15) + i * 1.5
+        amp = (0.12 + i * 0.06) * (0.5 + bass * 1.5)  # bass amplifies waves
+        freq = 1.2 + i * 0.4 + mid * 0.5  # mid shifts frequency
+        phase = bp * (0.5 + i * 0.15) + i * 1.5  # beat_push drives phase
         wave_y = amp * math.sin(nx * freq * math.pi + phase)
         dist = abs(ny - wave_y)
         line = max(0, 1.0 - dist * 15.0)
         val = max(val, line * (0.6 + 0.4 * (i + 1) / 3))
     hue = (nx * 0.3 + t * 0.05 + ny * 1.5 + 0.5) % 1.0
-    return _hsv_rgb(hue, 0.8, val)
+    return _rainbow_color(hue, t, speed=0.0, value=val)
 
-def _wf_ocean_fn(nx, ny, t):
+def _wf_ocean_fn(nx, ny, t, bass=0, mid=0, treble=0, bp=0):
     val = 0.0
     for i in range(4):
         base_y = -0.12 + i * 0.08
-        amp = 0.06 + 0.03 * math.sin(t * 0.3 + i * 0.7)
-        freq = 1.0 + i * 0.3
-        phase = t * (0.3 + i * 0.08) + i * 1.3
+        amp = (0.06 + 0.03 * i) * (0.5 + bass * 1.5)
+        freq = 1.0 + i * 0.3 + mid * 0.3
+        phase = bp * (0.3 + i * 0.08) + i * 1.3
         wave_y = base_y + amp * math.sin(nx * freq * math.pi + phase)
         dist = abs(ny - wave_y)
         line = max(0, 1.0 - dist * 18.0)
         val = max(val, line * 0.85)
     hue = (nx * 0.4 + t * 0.03) % 1.0
-    return _hsv_rgb(hue, 0.75, val)
+    return _rainbow_color(hue, t, speed=0.0, value=val)
 
-def _wf_interference_fn(nx, ny, t):
+def _wf_interference_fn(nx, ny, t, bass=0, mid=0, treble=0, bp=0):
     val = 0.0
-    wave1 = 0.2 * math.sin(nx * 1.5 * math.pi + t * 0.5)
+    amp = 0.15 + bass * 0.2
+    wave1 = amp * math.sin(nx * 1.5 * math.pi + bp * 0.5)
     dist1 = abs(ny - wave1)
     val += max(0, 1.0 - dist1 * 12.0) * 0.8
-    wave2 = 0.2 * math.sin(nx * 1.8 * math.pi - t * 0.4)
+    wave2 = amp * math.sin(nx * 1.8 * math.pi - bp * 0.4)
     dist2 = abs(ny - wave2)
     val += max(0, 1.0 - dist2 * 12.0) * 0.7
     if dist1 < 0.06 and dist2 < 0.06:
         val += 0.5
     val = min(1.0, val)
     hue = (nx * 0.4 + ny + t * 0.04) % 1.0
-    return _hsv_rgb(hue, 0.85, val)
+    return _rainbow_color(hue, t, speed=0.0, value=val)
 
-def _wf_pulse_fn(nx, ny, t):
-    pulse = 0.5 + 0.5 * math.sin(t * 1.5)
-    amp = 0.25 * (0.3 + 0.7 * pulse)
-    wave_y = amp * math.sin(nx * 1.5 * math.pi + t * 0.4)
-    wave_y += amp * 0.3 * math.sin(nx * 3.75 * math.pi + t * 0.6)
+def _wf_pulse_fn(nx, ny, t, bass=0, mid=0, treble=0, bp=0):
+    amp = 0.2 * (0.4 + bass * 1.5)  # bass drives amplitude
+    wave_y = amp * math.sin(nx * 1.5 * math.pi + bp * 0.4)
+    wave_y += amp * 0.3 * math.sin(nx * 3.75 * math.pi + bp * 0.6)
     dist = abs(ny - wave_y)
     val = max(0, 1.0 - dist * 10.0)
     hue = (0.7 + nx * 0.3 + t * 0.03) % 1.0
-    return _hsv_rgb(hue, 0.7, val)
+    return _rainbow_color(hue, t, speed=0.0, value=val)
 
 
 def _render_wf_multi_sine(frame, w, h, t, fft, td, bass, mid, treble):
