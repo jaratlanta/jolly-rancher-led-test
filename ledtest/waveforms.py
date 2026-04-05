@@ -1033,7 +1033,10 @@ def _vis_render(frame, w, h, t, func, bass=0, mid=0, treble=0, fft=None):
     """
     aspect = w / max(h, 1)
     bp = _current_beat_push
-    effective_t = bp * 0.5 + t * 0.05
+    # No independent time drift — only beat_push drives motion
+    # In AUDIO mode: t=0 from engine, so only audio moves the pattern
+    # In DEFAULT mode: beat_push = t * (bpm/60), so smooth BPM-based advance
+    effective_t = bp * 0.5
 
     for y_px in range(h):
         ny = y_px / max(h - 1, 1) - 0.5

@@ -296,6 +296,8 @@ class FrameEngine:
             return frame
 
         # Get audio params + beat_push
+        # AUDIO mode: ALL motion comes from audio. No sound = frozen.
+        # DEFAULT mode: simulated gentle animation from BPM.
         if self.waveform_audio and self.audio.enabled:
             fft = self.audio.fft_data
             td = self.audio.td_data
@@ -303,6 +305,8 @@ class FrameEngine:
             mid = self.audio.mid_smooth
             treble = self.audio.treble_smooth
             beat_push = self.audio.beat_push
+            # In AUDIO mode, t should NOT add any independent motion
+            t = 0  # freeze clock — only audio drives animation
         else:
             fft, td = None, None
             bass = 0.2 + 0.15 * math.sin(t * 0.3)
