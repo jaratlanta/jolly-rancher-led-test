@@ -1033,16 +1033,21 @@ def _vis_render(frame, w, h, t, func, bass=0, mid=0, treble=0, fft=None):
     """
     aspect = w / max(h, 1)
     bp = _current_beat_push
-    # No independent time drift — only beat_push drives motion
-    # In AUDIO mode: t=0 from engine, so only audio moves the pattern
-    # In DEFAULT mode: beat_push = t * (bpm/60), so smooth BPM-based advance
-    effective_t = bp * 0.5
+    # In AUDIO mode (fft is not None): NO time-based motion at all.
+    # Pattern is driven ONLY by FFT/bass/mid/treble values.
+    # In DEFAULT mode (fft is None): use beat_push for smooth BPM animation.
+    if fft is not None:
+        effective_t = 0  # FROZEN — only audio params drive shape
+        effective_bp = 0  # no metronome in audio mode
+    else:
+        effective_t = bp * 0.5  # DEFAULT: BPM-driven smooth advance
+        effective_bp = bp
 
     for y_px in range(h):
         ny = y_px / max(h - 1, 1) - 0.5
         for x_px in range(w):
             nx = (x_px / max(w - 1, 1) - 0.5) * aspect
-            r, g, b = func(nx, ny, effective_t, bass, mid, treble, bp)
+            r, g, b = func(nx, ny, effective_t, bass, mid, treble, effective_bp)
             if r > 2 or g > 2 or b > 2:
                 boost = _BRIGHTNESS_BOOST
                 frame[y_px, x_px, 0] = min(255, max(frame[y_px, x_px, 0], int(r * boost)))
@@ -1247,13 +1252,23 @@ def _cym_grid_core(frame, w, h, t, bass, mid, treble, radial_offset, fft=None):
 
 
 def _render_cym_grid_radiate(frame, w, h, t, fft, td, bass, mid, treble):
-    """Cym Grid Radiate — rings expand outward perpetually. Tested via GIF harness."""
-    _cym_grid_core(frame, w, h, t, bass, mid, treble, _current_beat_push * 1.5, fft)
+    """Cym Grid Radiate — rings expand outward.
+    AUDIO: bass drives expansion. DEFAULT: BPM-based continuous expansion."""
+    if fft is not None:
+        offset = bass * 4.0  # ONLY bass drives radial push in audio mode
+    else:
+        offset = _current_beat_push * 1.5  # DEFAULT: continuous BPM advance
+    _cym_grid_core(frame, w, h, t, bass, mid, treble, offset, fft)
 
 
 def _render_cym_grid_pulse(frame, w, h, t, fft, td, bass, mid, treble):
-    """Cym Grid Pulse — shape throbs/pulses with each beat."""
-    _cym_grid_core(frame, w, h, t, bass, mid, treble, _current_beat_push * 1.2, fft)
+    """Cym Grid Pulse — shape throbs/pulses.
+    AUDIO: bass drives pulse. DEFAULT: BPM-based continuous pulse."""
+    if fft is not None:
+        offset = bass * 3.0
+    else:
+        offset = _current_beat_push * 1.2
+    _cym_grid_core(frame, w, h, t, bass, mid, treble, offset, fft)
 
 def _render_cym_flower(frame, w, h, t, fft, td, bass, mid, treble):
     _vis_render(frame, w, h, t, _cym_flower_fn, bass, mid, treble, fft)
