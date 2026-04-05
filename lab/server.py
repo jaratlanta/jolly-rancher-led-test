@@ -174,7 +174,7 @@ def exp_cym_nodal_fft(frame, w, h, t, col_fft):
             p = math.cos(r * 4.0) * (0.6 + 0.4 * math.cos(6 * theta))
             val = nodal(p, 0.22) * fv * 2.0
             if val > 0.03:
-                hue = (theta / 6.28 * 0.6 + r * 0.5 + t * 0.02) % 1.0
+                hue = ((theta + 3.14) / 6.28 * 0.6 + r * 0.5 + t * 0.02) % 1.0
                 rc, gc, bc = hsv(hue, 0.8, min(1.0, val * 1.3))
                 frame[y, x] = [rc, gc, bc]
 
@@ -217,7 +217,7 @@ def exp_cym_thickness(frame, w, h, t, col_fft):
             p = math.cos(r * 4.0) * (0.6 + 0.4 * math.cos(6 * theta))
             val = nodal(p, thick) * (0.3 + fv * 1.2)
             if val > 0.03:
-                hue = (theta / 6.28 * 0.6 + r * 0.5 + t * 0.02) % 1.0
+                hue = ((theta + 3.14) / 6.28 * 0.6 + r * 0.5 + t * 0.02) % 1.0
                 rc, gc, bc = hsv(hue, 0.8, min(1.0, val * 1.3))
                 frame[y, x] = [rc, gc, bc]
 
@@ -236,7 +236,7 @@ def exp_cym_breathing(frame, w, h, t, col_fft):
             p = math.cos(r * sf) * (0.6 + 0.4 * math.cos(6 * theta))
             val = nodal(p, 0.2 + fv * 0.15) * (0.3 + fv * 1.0)
             if val > 0.03:
-                hue = (theta / 6.28 * 0.6 + r * 0.5 + t * 0.02) % 1.0
+                hue = ((theta + 3.14) / 6.28 * 0.6 + r * 0.5 + t * 0.02) % 1.0
                 rc, gc, bc = hsv(hue, 0.8, min(1.0, val * 1.3))
                 frame[y, x] = [rc, gc, bc]
 
@@ -277,7 +277,7 @@ def exp_cym_symmetry(frame, w, h, t, col_fft):
             p = math.cos(r * 4.0) * math.cos(n * theta)
             val = nodal(p, 0.22) * (0.3 + fv * 1.2)
             if val > 0.03:
-                hue = (theta / 6.28 * 0.6 + r * 0.5 + t * 0.02) % 1.0
+                hue = ((theta + 3.14) / 6.28 * 0.6 + r * 0.5 + t * 0.02) % 1.0
                 rc, gc, bc = hsv(hue, 0.8, min(1.0, val * 1.3))
                 frame[y, x] = [rc, gc, bc]
 
@@ -365,7 +365,7 @@ def exp_pulse_rings(frame, w, h, t, col_fft):
             val = max(0, 1.0 - ring * 3.0) * fv * 2.0
             if val > 0.03:
                 theta = math.atan2(ny, nx)
-                hue = (r_norm * 0.6 + theta / 6.28 * 0.3 + t * 0.02) % 1.0
+                hue = (r_norm * 0.6 + (theta + 3.14) / 6.28 * 0.3 + t * 0.02) % 1.0
                 rc, gc, bc = hsv(hue, 0.85, min(1.0, val * 1.3))
                 frame[y, x] = [rc, gc, bc]
 
@@ -445,7 +445,7 @@ def exp_cym_radial(frame, w, h, t, col_fft):
             p = math.cos(r * 4.0) * (0.6 + 0.4 * math.cos(6 * theta))
             val = nodal(p, 0.22) * fv * 2.0
             if val > 0.03:
-                hue = (theta / 6.28 * 0.6 + r * 0.5 + t * 0.02) % 1.0
+                hue = ((theta + 3.14) / 6.28 * 0.6 + r * 0.5 + t * 0.02) % 1.0
                 rc, gc, bc = hsv(hue, 0.8, min(1.0, val * 1.3))
                 frame[y, x] = [rc, gc, bc]
 
@@ -465,13 +465,13 @@ def exp_cym_mirror(frame, w, h, t, col_fft):
             p = math.cos(r * 4.0) * (0.6 + 0.4 * math.cos(6 * theta))
             val = nodal(p, thick) * (0.3 + fv * 1.2)
             if val > 0.03:
-                hue = (theta / 6.28 * 0.6 + r * 0.5 + t * 0.02) % 1.0
+                hue = ((theta + 3.14) / 6.28 * 0.6 + r * 0.5 + t * 0.02) % 1.0
                 rc, gc, bc = hsv(hue, 0.8, min(1.0, val * 1.3))
                 frame[y, x] = [rc, gc, bc]
 
 
 def exp_cym_spatial(frame, w, h, t, col_fft):
-    """C3. Cymatics — FFT controls spatial frequency (breathing). Mirrored."""
+    """C3. Cymatics breathing — thick orbiting lines. Mirrored FFT."""
     aspect = w / max(h, 1)
     mirror_fft = get_col_fft_mirror(w, offset=380)
     for y in range(h):
@@ -481,33 +481,32 @@ def exp_cym_spatial(frame, w, h, t, col_fft):
             r = math.sqrt(nx*nx + ny*ny)
             theta = math.atan2(ny, nx)
             fv = mirror_fft[x]
-            sf = 3.0 + fv * 6.0
+            sf = 3.0 + fv * 5.0
             p = math.cos(r * sf) * (0.6 + 0.4 * math.cos(6 * theta))
-            val = nodal(p, 0.2 + fv * 0.15) * (0.3 + fv * 1.0)
+            val = nodal(p, 0.35 + fv * 0.2) * (0.3 + fv * 1.0)  # THICK lines
             if val > 0.03:
-                hue = (theta / 6.28 * 0.6 + r * 0.5 + t * 0.02) % 1.0
+                hue = ((theta + 3.14) / 6.28 * 0.6 + r * 0.5 + t * 0.02) % 1.0
                 rc, gc, bc = hsv(hue, 0.8, min(1.0, val * 1.3))
                 frame[y, x] = [rc, gc, bc]
 
 
 def exp_horizon_multi(frame, w, h, t, col_fft):
-    """C4. Multi-horizon — 4 flowing lines at different heights, all FFT-driven."""
+    """C4. Multi-horizon — 4 always-visible flowing lines."""
     mirror_fft = get_col_fft_mirror(w, offset=390)
     heights = [0.2, 0.4, 0.6, 0.8]
     for x in range(w):
-        fv = mirror_fft[x]
-        if fv < 0.02: continue
+        fv = max(mirror_fft[x], 0.08)  # always visible
         for i, base_h in enumerate(heights):
             hue = (x / max(w-1, 1) * 0.6 + i * 0.15 + t * 0.03) % 1.0
             r, g, b = hsv(hue, 0.85, 1.0)
             line_y = int(base_h * h + fv * 3 * math.sin(x * 0.04 + i * 1.5 + t * 0.5))
-            line_y = max(0, min(h-1, line_y))
-            for y in range(h):
+            line_y = max(1, min(h-2, line_y))
+            glow_r = int(3 + fv * 3)
+            for y in range(max(0, line_y - glow_r), min(h, line_y + glow_r + 1)):
                 dist = abs(y - line_y)
-                if dist < 5:
-                    glow = (1.0 - dist / 5.0) * fv * 1.3
-                    pr, pg, pb = int(r * glow), int(g * glow), int(b * glow)
-                    frame[y, x] = [max(frame[y, x, 0], pr), max(frame[y, x, 1], pg), max(frame[y, x, 2], pb)]
+                glow = (1.0 - dist / glow_r) * fv * 1.3
+                pr, pg, pb = int(r * glow), int(g * glow), int(b * glow)
+                frame[y, x] = [max(frame[y, x, 0], pr), max(frame[y, x, 1], pg), max(frame[y, x, 2], pb)]
 
 
 def exp_horizon_pulse(frame, w, h, t, col_fft):
@@ -569,7 +568,7 @@ def exp_cym_expanding(frame, w, h, t, col_fft):
             edge = max(0, 1.0 - (r / vis_radius) ** 2) if vis_radius > 0.01 else 0
             val *= edge
             if val > 0.03:
-                hue = (theta / 6.28 * 0.6 + r * 0.4 + t * 0.02) % 1.0
+                hue = ((theta + 3.14) / 6.28 * 0.6 + r * 0.4 + t * 0.02) % 1.0
                 rc, gc, bc = hsv(hue, 0.8, min(1.0, val * 1.5))
                 frame[y, x] = [rc, gc, bc]
 
@@ -591,7 +590,7 @@ def exp_cym_dual(frame, w, h, t, col_fft):
             p2 = math.cos(r * 6.0) * math.cos(8 * theta)
             val = nodal(p1, 0.25) * fv_bass * 1.5 + nodal(p2, 0.18) * fv_tre * 1.0
             if val > 0.03:
-                hue = (theta / 6.28 * 0.5 + r * 0.4 + t * 0.02) % 1.0
+                hue = ((theta + 3.14) / 6.28 * 0.5 + r * 0.4 + t * 0.02) % 1.0
                 rc, gc, bc = hsv(hue, 0.8, min(1.0, val))
                 frame[y, x] = [rc, gc, bc]
 
@@ -614,7 +613,7 @@ def exp_cym_star(frame, w, h, t, col_fft):
             # Wider gradient — fills more space
             val = (star * 0.6 + 0.4) * (max(0, ring) * 0.7 + 0.3) * fv * 1.8
             if val > 0.03:
-                hue = (theta / 6.28 * 0.6 + r * 0.4 + t * 0.02) % 1.0
+                hue = ((theta + 3.14) / 6.28 * 0.6 + r * 0.4 + t * 0.02) % 1.0
                 rc, gc, bc = hsv(hue, 0.85, min(1.0, val * 1.3))
                 frame[y, x] = [rc, gc, bc]
 
@@ -641,7 +640,7 @@ def exp_cym_flower(frame, w, h, t, col_fft):
                 inner = math.cos(r * (6 + fv * 8))
                 val = softness * (0.4 + 0.6 * max(0, inner)) * fv * 1.8
                 if val > 0.02:
-                    hue = (theta / 6.28 * 0.5 + r * 0.6 + t * 0.02) % 1.0
+                    hue = ((theta + 3.14) / 6.28 * 0.5 + r * 0.6 + t * 0.02) % 1.0
                     rc, gc, bc = hsv(hue, 0.75, min(1.0, val))
                     frame[y, x] = [rc, gc, bc]
 
@@ -882,7 +881,7 @@ def exp_kal_web(frame, w, h, t, col_fft):
             combined = (w1 + w2 * 0.5 + w3 * 0.3 + 1.8) / 3.6
             val = combined * combined * (0.3 + fv * 1.2)
             if val > 0.03:
-                hue = (theta / 6.28 * 0.4 + r * 0.5 + t * 0.02) % 1.0
+                hue = ((theta + 3.14) / 6.28 * 0.4 + r * 0.5 + t * 0.02) % 1.0
                 rc, gc, bc = hsv(hue, 0.8, min(1.0, val * 1.5))
                 frame[y, x] = [rc, gc, bc]
 
@@ -990,35 +989,35 @@ def exp_vortex(frame, w, h, t, col_fft):
             val = min(1.0, val * fv * 1.5)
             if val > 0.03:
                 # Rich multi-color: hue varies with angle AND radius AND FFT
-                hue = (theta / 6.28 * 0.4 + r * 0.3 + fv * 0.3 + t * 0.02) % 1.0
+                hue = ((theta + 3.14) / 6.28 * 0.4 + r * 0.3 + fv * 0.3 + t * 0.02) % 1.0
                 rc, gc, bc = hsv(hue, 0.9, min(1.0, val))
                 frame[y, x] = [rc, gc, bc]
 
 
 def exp_falling(frame, w, h, t, col_fft):
-    """Falling — particles drop from top, trail behind them. FFT = drop density."""
+    """Falling — slow gentle rain with wave-like trails. FFT = drop height."""
     mirror_fft = get_col_fft_mirror(w, offset=330)
     for x in range(w):
         fv = mirror_fft[x]
-        if fv < 0.03: continue
-        hue = (x / max(w-1, 1) * 0.7 + t * 0.03) % 1.0
+        if fv < 0.02: continue
+        hue = (x / max(w-1, 1) * 0.7 + t * 0.02) % 1.0
         r, g, b = hsv(hue, 0.85, 1.0)
-        # Multiple drops per column based on FFT energy
-        n_drops = max(1, int(fv * 4))
-        for d in range(n_drops):
-            # Drop position scrolls down over time
-            drop_y = ((t * (3 + d * 1.5) + x * 0.37 + d * 7.1) % 1.0)
-            py = int(drop_y * (h - 1))
-            # Trail above the drop (3-5 pixels)
-            trail_len = int(2 + fv * 4)
-            for dy in range(trail_len):
-                ty = py - dy
-                if 0 <= ty < h:
-                    fade = 1.0 - dy / trail_len
-                    intensity = fade * fv * 1.5
-                    frame[ty, x] = [max(frame[ty, x, 0], int(r * intensity)),
-                                    max(frame[ty, x, 1], int(g * intensity)),
-                                    max(frame[ty, x, 2], int(b * intensity))]
+        # Single slow drop with long trail — wave-like sine modulation
+        drop_speed = 0.4 + fv * 0.3  # SLOW
+        drop_y = ((t * drop_speed + x * 0.13) % 1.0)
+        py = int(drop_y * (h - 1))
+        # Long trail with sine wave modulation
+        trail_len = int(4 + fv * 8)
+        for dy in range(trail_len):
+            ty = py - dy
+            if 0 <= ty < h:
+                fade = 1.0 - dy / trail_len
+                # Wave modulation on the trail
+                wave = 0.7 + 0.3 * math.sin(dy * 0.8 + x * 0.1)
+                intensity = fade * fv * 1.3 * wave
+                frame[ty, x] = [max(frame[ty, x, 0], int(r * intensity)),
+                                max(frame[ty, x, 1], int(g * intensity)),
+                                max(frame[ty, x, 2], int(b * intensity))]
 
 
 def exp_prism(frame, w, h, t, col_fft):
@@ -1066,27 +1065,27 @@ def exp_horizon_dual(frame, w, h, t, col_fft):
 
 
 def exp_hex_grid(frame, w, h, t, col_fft):
-    """Hexagonal grid pattern — FFT drives brightness of hex cells."""
+    """Hexagonal grid — hexes grow/shrink in waves driven by FFT."""
     mirror_fft = get_col_fft_mirror(w, offset=290)
-    hex_size = 0.12
     for y in range(h):
         ny = y / (h-1)
         for x in range(w):
             nx = x / (w-1)
             fv = mirror_fft[x]
             if fv < 0.02: continue
-            # Hex grid coordinate
+            # Hex size modulated by FFT — creates grow/shrink wave
+            hex_size = 0.08 + fv * 0.08
             hx = nx / hex_size
             hy = ny / hex_size
             if int(hy) % 2 == 1: hx += 0.5
-            # Distance to nearest hex center
             cx = round(hx)
             cy = round(hy)
             dx = abs(hx - cx) * 2
             dy = abs(hy - cy) * 2
             dist = max(dx, (dx + dy) / 2)
-            # Hex outline
-            edge = max(0, 1.0 - abs(dist - 0.8) * 8.0) * fv * 2.0
+            # Hex outline — thicker with more FFT
+            edge_thick = 6.0 + fv * 4.0
+            edge = max(0, 1.0 - abs(dist - 0.8) * edge_thick) * fv * 2.0
             if edge > 0.03:
                 hue = (nx * 0.5 + ny * 0.3 + t * 0.02) % 1.0
                 r, g, b = hsv(hue, 0.8, min(1.0, edge))
@@ -1094,24 +1093,23 @@ def exp_hex_grid(frame, w, h, t, col_fft):
 
 
 def exp_horizon_wave(frame, w, h, t, col_fft):
-    """Wave horizon — sine wave line whose shape follows the FFT spectrum."""
+    """Wave horizon — always-visible line whose vertical position = FFT."""
     mirror_fft = get_col_fft_mirror(w, offset=310)
     center = h // 2
     for x in range(w):
-        fv = mirror_fft[x]
-        if fv < 0.02: continue
-        # Wave position driven by FFT at this column
-        wave_y = center + int((fv - 0.3) * center * 1.5)
-        wave_y = max(0, min(h-1, wave_y))
+        fv = max(mirror_fft[x], 0.1)  # minimum visibility — never disappears
+        # Wave position: center when quiet, moves with FFT
+        wave_y = center + int((fv - 0.3) * center * 1.2)
+        wave_y = max(1, min(h-2, wave_y))
         hue = (x / max(w-1, 1) * 0.7 + t * 0.03) % 1.0
         r, g, b = hsv(hue, 0.85, 1.0)
-        for y in range(h):
+        glow_r = int(5 + fv * 4)  # wider glow with more energy
+        for y in range(max(0, wave_y - glow_r), min(h, wave_y + glow_r + 1)):
             dist = abs(y - wave_y)
-            if dist < 7:
-                glow = (1.0 - dist / 7.0) * fv * 1.5
-                frame[y, x] = [max(frame[y, x, 0], int(r * glow)),
-                               max(frame[y, x, 1], int(g * glow)),
-                               max(frame[y, x, 2], int(b * glow))]
+            glow = (1.0 - dist / glow_r) * min(1.0, fv * 1.5)
+            frame[y, x] = [max(frame[y, x, 0], int(r * glow)),
+                           max(frame[y, x, 1], int(g * glow)),
+                           max(frame[y, x, 2], int(b * glow))]
 
 
 def exp_circuit(frame, w, h, t, col_fft):
@@ -1150,7 +1148,7 @@ def exp_galaxy(frame, w, h, t, col_fft):
             arm2 = math.sin(2 * theta + r * 4.0 + math.pi)
             val = (max(0, arm1) + max(0, arm2) * 0.5) * fv * 1.5
             if val > 0.03:
-                hue = (r_norm * 0.5 + theta / 6.28 * 0.4 + t * 0.02) % 1.0
+                hue = (r_norm * 0.5 + (theta + 3.14) / 6.28 * 0.4 + t * 0.02) % 1.0
                 rc, gc, bc = hsv(hue, 0.8, min(1.0, val))
                 frame[y, x] = [rc, gc, bc]
 
@@ -1236,7 +1234,6 @@ EXPERIMENTS = [
     ("K5 Kal Mirror", exp_kal_mirror),
     ("K6 Kal Crystal", exp_kal_crystal),
     ("K7 Circuit", exp_circuit),
-    ("K9 Kal Dual", exp_kal_dual),
 ]
 
 
