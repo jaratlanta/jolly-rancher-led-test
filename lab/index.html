@@ -50,6 +50,8 @@
         .exp-sub { font-size: 0.65rem; color: #666; text-align: center; }
         .audio-btn { padding: 8px 20px; }
         .audio-btn.active { background: #005577; border-color: #00ccff; color: #fff; }
+        .fx-btn { padding: 5px 10px; font-size: 0.7rem; }
+        .fx-btn.active { background: #005577; border-color: #00ccff; color: #fff; }
         .status { font-size: 0.6rem; color: #333; margin-top: 8px; }
         .meter { display: flex; gap: 4px; align-items: flex-end; height: 30px; margin-top: 5px; }
         .meter-bar { width: 8px; background: #00ccff33; border-radius: 2px; transition: height 0.05s; }
@@ -73,6 +75,11 @@
     </div>
     <button id="next-btn">►</button>
     <button class="audio-btn" id="audio-btn">🎤 Audio Off</button>
+    <div style="display:flex; gap:4px;">
+        <button class="fx-btn active" id="fx-none">None</button>
+        <button class="fx-btn" id="fx-glow">Glow</button>
+        <button class="fx-btn" id="fx-trail">Trail</button>
+    </div>
 </div>
 
 <div class="meter" id="meter">
@@ -246,6 +253,15 @@ document.getElementById('exp-name').addEventListener('click', () => {
         document.getElementById('exp-name').textContent = name;
     }, 800);
 });
+// FX buttons
+['none', 'glow', 'trail'].forEach(fx => {
+    document.getElementById('fx-' + fx).addEventListener('click', () => {
+        send({ cmd: 'set_fx', fx });
+        document.querySelectorAll('.fx-btn').forEach(b => b.classList.remove('active'));
+        document.getElementById('fx-' + fx).classList.add('active');
+    });
+});
+
 document.getElementById('prev-btn').addEventListener('click', () => send({ cmd: 'prev_exp' }));
 document.getElementById('next-btn').addEventListener('click', () => send({ cmd: 'next_exp' }));
 document.getElementById('audio-btn').addEventListener('click', () => {

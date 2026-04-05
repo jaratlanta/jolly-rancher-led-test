@@ -50,6 +50,14 @@ FRONT_W, FRONT_H = 72, 24
 SIDE_W, SIDE_H = 220, 24
 FPS = 20
 
+# FX state
+current_fx = "none"  # "none", "glow", "trail"
+FX_LIST = ["none", "glow", "trail"]
+
+# Trail buffers (persistent frame that decays)
+_trail_front = np.zeros((FRONT_H, FRONT_W, 3), dtype=np.float32)
+_trail_side = np.zeros((SIDE_H, SIDE_W, 3), dtype=np.float32)
+
 # WebSocket clients
 ws_clients = set()
 ws_lock = threading.Lock()
@@ -400,8 +408,8 @@ def exp_horizon(frame, w, h, t, col_fft):
             dist = abs(y - line_y)
             if dist == 0:
                 frame[y, x] = [min(255, r + 60), min(255, g + 60), min(255, b + 60)]
-            elif dist < 4:
-                glow = (1.0 - dist / 4.0) * fv
+            elif dist < 8:
+                glow = (1.0 - dist / 8.0) * fv
                 frame[y, x] = [int(r * glow), int(g * glow), int(b * glow)]
 
 
@@ -414,9 +422,10 @@ def exp_plasma_fft(frame, w, h, t, col_fft):
             nx = x / (w-1)
             fv = mirror_fft[x]
             if fv < 0.02: continue
-            v1 = math.sin(nx * 8 + t * 1.5) * math.cos(ny * 6 - t * 0.8)
-            v2 = math.cos(nx * 5 - ny * 7 + t * 0.5)
-            plasma = (v1 + v2 + 2) / 4.0
+            v1 = math.sin(nx * 6 + t * 1.2) * math.cos(ny * 5 - t * 0.6)
+            v2 = math.cos(nx * 4 + ny * 3 + t * 0.4)
+            v3 = math.sin(math.sqrt(nx*nx + ny*ny) * 4 + t * 0.8)
+            plasma = (v1 + v2 + v3 + 3) / 6.0
             val = plasma * fv * 1.5
             if val > 0.03:
                 hue = (plasma * 0.5 + nx * 0.3 + t * 0.02) % 1.0
@@ -468,15 +477,16 @@ def exp_cym_mirror(frame, w, h, t, col_fft):
 
 
 def exp_cym_spatial(frame, w, h, t, col_fft):
-    """C3. Cymatics — FFT controls spatial frequency (breathing)."""
+    """C3. Cymatics — FFT controls spatial frequency (breathing). Mirrored."""
     aspect = w / max(h, 1)
+    mirror_fft = get_col_fft_mirror(w, offset=380)
     for y in range(h):
         ny = y / (h-1) - 0.5
         for x in range(w):
             nx = (x / (w-1) - 0.5) * aspect
             r = math.sqrt(nx*nx + ny*ny)
             theta = math.atan2(ny, nx)
-            fv = col_fft[x]
+            fv = mirror_fft[x]
             sf = 3.0 + fv * 6.0
             p = math.cos(r * sf) * (0.6 + 0.4 * math.cos(6 * theta))
             val = nodal(p, 0.2 + fv * 0.15) * (0.3 + fv * 1.0)
@@ -487,15 +497,16 @@ def exp_cym_spatial(frame, w, h, t, col_fft):
 
 
 def exp_cym_symmetry(frame, w, h, t, col_fft):
-    """C4. Cymatics — FFT morphs angular symmetry order."""
+    """C4. Cymatics — FFT morphs angular symmetry order. Mirrored."""
     aspect = w / max(h, 1)
+    mirror_fft = get_col_fft_mirror(w, offset=390)
     for y in range(h):
         ny = y / (h-1) - 0.5
         for x in range(w):
             nx = (x / (w-1) - 0.5) * aspect
             r = math.sqrt(nx*nx + ny*ny)
             theta = math.atan2(ny, nx)
-            fv = col_fft[x]
+            fv = mirror_fft[x]
             n = 3.0 + fv * 8.0
             p = math.cos(r * 4.0) * math.cos(n * theta)
             val = nodal(p, 0.22) * (0.3 + fv * 1.2)
@@ -615,20 +626,21 @@ def exp_cym_star(frame, w, h, t, col_fft):
 
 
 def exp_cym_flower(frame, w, h, t, col_fft):
-    """C10. Flower petals — FFT controls petal count and openness."""
+    """C10. Flower petals — bigger, fills more space. Mirrored FFT."""
     aspect = w / max(h, 1)
+    mirror_fft = get_col_fft_mirror(w, offset=440)
     for y in range(h):
         ny = y / (h-1) - 0.5
         for x in range(w):
             nx = (x / (w-1) - 0.5) * aspect
             r = math.sqrt(nx*nx + ny*ny)
             theta = math.atan2(ny, nx)
-            fv = col_fft[x]
+            fv = mirror_fft[x]
             if fv < 0.03: continue
             petals = int(5 + fv * 5)
             petal = abs(math.cos(petals * theta * 0.5))
-            petal_r = fv * 0.3 * (0.5 + 0.5 * petal)
-            if r < petal_r * 10:
+            petal_r = fv * 0.8 * (0.5 + 0.5 * petal)  # much bigger
+            if r < petal_r * 6:
                 inner = math.cos(r * (8 + fv * 10))
                 val = (0.3 + 0.7 * max(0, inner)) * fv * 1.5
                 if val > 0.03:
@@ -872,6 +884,164 @@ def exp_kal_web(frame, w, h, t, col_fft):
                 frame[y, x] = [rc, gc, bc]
 
 
+# ─── NEW replacements for removed experiments ────────────────────────────────
+
+def exp_diamond_grid(frame, w, h, t, col_fft):
+    """Diamond crosshatch — crossing diagonals lit by FFT."""
+    mirror_fft = get_col_fft_mirror(w, offset=280)
+    for y in range(h):
+        ny = y / (h-1)
+        for x in range(w):
+            nx = x / (w-1)
+            fv = mirror_fft[x]
+            if fv < 0.02: continue
+            d1 = abs(math.sin((nx + ny) * 8.0))
+            d2 = abs(math.sin((nx - ny) * 8.0))
+            thresh = 1.0 - fv * 0.8
+            val = 0
+            if d1 > thresh: val += (d1 - thresh) / (1.0 - thresh)
+            if d2 > thresh: val += (d2 - thresh) / (1.0 - thresh)
+            val = min(1.0, val)
+            if val > 0.03:
+                hue = (nx * 0.6 + ny * 0.3 + t * 0.03) % 1.0
+                r, g, b = hsv(hue, 0.85, val)
+                frame[y, x] = [r, g, b]
+
+
+def exp_hex_grid(frame, w, h, t, col_fft):
+    """Hexagonal grid pattern — FFT drives brightness of hex cells."""
+    mirror_fft = get_col_fft_mirror(w, offset=290)
+    hex_size = 0.12
+    for y in range(h):
+        ny = y / (h-1)
+        for x in range(w):
+            nx = x / (w-1)
+            fv = mirror_fft[x]
+            if fv < 0.02: continue
+            # Hex grid coordinate
+            hx = nx / hex_size
+            hy = ny / hex_size
+            if int(hy) % 2 == 1: hx += 0.5
+            # Distance to nearest hex center
+            cx = round(hx)
+            cy = round(hy)
+            dx = abs(hx - cx) * 2
+            dy = abs(hy - cy) * 2
+            dist = max(dx, (dx + dy) / 2)
+            # Hex outline
+            edge = max(0, 1.0 - abs(dist - 0.8) * 8.0) * fv * 2.0
+            if edge > 0.03:
+                hue = (nx * 0.5 + ny * 0.3 + t * 0.02) % 1.0
+                r, g, b = hsv(hue, 0.8, min(1.0, edge))
+                frame[y, x] = [r, g, b]
+
+
+def exp_spiral_fft(frame, w, h, t, col_fft):
+    """Spiral arms — FFT drives spiral brightness."""
+    aspect = w / max(h, 1)
+    mirror_fft = get_col_fft_mirror(w, offset=310)
+    for y in range(h):
+        ny = y / (h-1) - 0.5
+        for x in range(w):
+            nx = (x / (w-1) - 0.5) * aspect
+            r = math.sqrt(nx*nx + ny*ny)
+            theta = math.atan2(ny, nx)
+            fv = mirror_fft[x]
+            if fv < 0.03: continue
+            spiral = math.sin(4 * theta + r * 3.0)
+            val = max(0, spiral) * fv * 2.0
+            if val > 0.03:
+                hue = (theta / 6.28 * 0.5 + r * 0.4 + t * 0.02) % 1.0
+                rc, gc, bc = hsv(hue, 0.85, min(1.0, val))
+                frame[y, x] = [rc, gc, bc]
+
+
+def exp_circuit(frame, w, h, t, col_fft):
+    """Circuit board lines — horizontal and vertical traces lit by FFT."""
+    mirror_fft = get_col_fft_mirror(w, offset=320)
+    for y in range(h):
+        ny = y / (h-1)
+        for x in range(w):
+            nx = x / (w-1)
+            fv = mirror_fft[x]
+            if fv < 0.02: continue
+            # Grid lines (thicker when louder)
+            hline = abs(ny * 8 % 1.0 - 0.5) < (0.02 + fv * 0.15)
+            vline = abs(nx * 12 % 1.0 - 0.5) < (0.02 + fv * 0.1)
+            if hline or vline:
+                val = fv * 1.5
+                hue = (nx * 0.4 + ny * 0.3 + t * 0.02) % 1.0
+                r, g, b = hsv(hue, 0.7, min(1.0, val))
+                frame[y, x] = [r, g, b]
+
+
+def exp_galaxy(frame, w, h, t, col_fft):
+    """Galaxy spiral — FFT drives arm brightness with trailing glow."""
+    aspect = w / max(h, 1)
+    for y in range(h):
+        ny = y / (h-1) - 0.5
+        for x in range(w):
+            nx = (x / (w-1) - 0.5) * aspect
+            r = math.sqrt(nx*nx + ny*ny)
+            theta = math.atan2(ny, nx)
+            r_norm = min(1.0, r / 5.0)
+            fv = smooth(480 + int(r_norm * 50), get_fft(r_norm))
+            if fv < 0.02: continue
+            # Two spiral arms
+            arm1 = math.sin(2 * theta + r * 4.0)
+            arm2 = math.sin(2 * theta + r * 4.0 + math.pi)
+            val = (max(0, arm1) + max(0, arm2) * 0.5) * fv * 1.5
+            if val > 0.03:
+                hue = (r_norm * 0.5 + theta / 6.28 * 0.4 + t * 0.02) % 1.0
+                rc, gc, bc = hsv(hue, 0.8, min(1.0, val))
+                frame[y, x] = [rc, gc, bc]
+
+
+def exp_ripple_fft(frame, w, h, t, col_fft):
+    """Ripple rings — concentric expanding rings, brightness from radial FFT."""
+    aspect = w / max(h, 1)
+    for y in range(h):
+        ny = y / (h-1) - 0.5
+        for x in range(w):
+            nx = (x / (w-1) - 0.5) * aspect
+            r = math.sqrt(nx*nx + ny*ny)
+            theta = math.atan2(ny, nx)
+            r_norm = min(1.0, r / 5.0)
+            fv = smooth(500 + int(r_norm * 40), get_fft(r_norm))
+            if fv < 0.03: continue
+            ring = math.sin(r * 8.0)
+            val = max(0, ring) * fv * 2.0
+            if val > 0.03:
+                hue = (r_norm * 0.6 + t * 0.03) % 1.0
+                rc, gc, bc = hsv(hue, 0.85, min(1.0, val))
+                frame[y, x] = [rc, gc, bc]
+
+
+def exp_kal_grid(frame, w, h, t, col_fft):
+    """Kaleidoscope grid — no center star, clean grid pattern that moves with FFT."""
+    aspect = w / max(h, 1)
+    mirror_fft = get_col_fft_mirror(w, offset=470)
+    for y in range(h):
+        ny = y / (h-1) - 0.5
+        for x in range(w):
+            nx = (x / (w-1) - 0.5) * aspect
+            r = math.sqrt(nx*nx + ny*ny)
+            theta = math.atan2(ny, nx)
+            fv = mirror_fft[x]
+            if fv < 0.03: continue
+            la, sec = _kal_fold(theta, 8)
+            fx, fy = r * math.cos(la), r * math.sin(la)
+            # Grid lines (no radial star — just horizontal/vertical in folded space)
+            sf = 5.0 + fv * 5.0
+            hline = abs(math.sin(fy * sf))
+            vline = abs(math.sin(fx * sf))
+            val = max(0, min(hline, vline)) * fv * 2.0
+            if val > 0.03:
+                hue = (la / sec * 0.5 + fv * 0.3 + t * 0.02) % 1.0
+                rc, gc, bc = hsv(hue, 0.8, min(1.0, val))
+                frame[y, x] = [rc, gc, bc]
+
+
 EXPERIMENTS = [
     # Patterns (column-based, all symmetric or mirrored)
     ("P1 Freq Bars", exp_freq_bars),
@@ -883,10 +1053,10 @@ EXPERIMENTS = [
     ("P7 Aurora", exp_aurora),
     ("P8 Horizon", exp_horizon),
     ("P9 Plasma", exp_plasma_fft),
-    ("P10 Wave Height", exp_wave_height),
-    # Cymatics (radial/symmetric — NO lopsided)
-    ("C1 Cym Radial", exp_cym_radial),
-    ("C2 Cym Mirror", exp_cym_mirror),
+    ("P10 Diamond Grid", exp_diamond_grid),
+    # Cymatics (radial/symmetric)
+    ("C1 Hex Grid", exp_hex_grid),
+    ("C2 Spiral", exp_spiral_fft),
     ("C3 Cym Breathing", exp_cym_spatial),
     ("C4 Cym Symmetry", exp_cym_symmetry),
     ("C5 Cym Morph", exp_cym_morph),
@@ -899,13 +1069,13 @@ EXPERIMENTS = [
     ("K1 Kal Radial", exp_kal_radial),
     ("K2 Kal Thickness", exp_kal_thick),
     ("K3 Kal Spatial", exp_kal_spatial),
-    ("K4 Kal Sectors", exp_kal_sectors),
+    ("K4 Kal Grid", exp_kal_grid),
     ("K5 Kal Mirror", exp_kal_mirror),
     ("K6 Kal Crystal", exp_kal_crystal),
-    ("K7 Kal Expanding", exp_kal_expanding),
-    ("K8 Kal Bloom", exp_kal_bloom),
+    ("K7 Circuit", exp_circuit),
+    ("K8 Galaxy", exp_galaxy),
     ("K9 Kal Dual", exp_kal_dual),
-    ("K10 Kal Web", exp_kal_web),
+    ("K10 Ripple", exp_ripple_fft),
 ]
 
 
@@ -913,8 +1083,34 @@ EXPERIMENTS = [
 
 running = True
 
+def apply_fx(frame, trail_buf):
+    """Apply current FX to a rendered frame."""
+    if current_fx == "glow":
+        # Glow: blur bright pixels into neighbors (3x3 box blur + additive)
+        f = frame.astype(np.float32)
+        h, w = f.shape[:2]
+        blurred = np.zeros_like(f)
+        for dy in range(-1, 2):
+            for dx in range(-1, 2):
+                blurred += np.roll(np.roll(f, dy, axis=0), dx, axis=1)
+        blurred /= 9.0
+        result = f + blurred * 0.6
+        return np.clip(result, 0, 255).astype(np.uint8)
+
+    elif current_fx == "trail":
+        # Trail: persistent afterglow that fades
+        f = frame.astype(np.float32)
+        trail_buf *= 0.85  # decay
+        trail_buf[:] = np.maximum(trail_buf, f * 0.9)  # stamp new brights
+        # Shift trail color toward blue as it ages
+        result = np.maximum(f, trail_buf)
+        return np.clip(result, 0, 255).astype(np.uint8)
+
+    return frame
+
+
 def render_loop():
-    global running, ws_clients, audio_active, audio_last_time
+    global running, ws_clients, audio_active, audio_last_time, current_fx
     dt = 1.0 / FPS
     t = 0
 
@@ -955,6 +1151,10 @@ def render_loop():
         except Exception as e:
             pass
 
+        # Apply FX
+        front = apply_fx(front, _trail_front)
+        side = apply_fx(side, _trail_side)
+
         # Pack into one message: front bytes + side bytes concatenated
         frame_bytes = front.tobytes() + side.tobytes()
 
@@ -966,6 +1166,7 @@ def render_loop():
             "exp_count": len(EXPERIMENTS),
             "front_w": FRONT_W, "front_h": FRONT_H,
             "side_w": SIDE_W, "side_h": SIDE_H,
+            "fx": current_fx,
         })
 
         with ws_lock:
@@ -1026,6 +1227,11 @@ async def ws_endpoint(ws: WebSocket):
                 current_exp = (current_exp + 1) % len(EXPERIMENTS)
             elif cmd == "prev_exp":
                 current_exp = (current_exp - 1) % len(EXPERIMENTS)
+            elif cmd == "set_fx":
+                global current_fx
+                current_fx = data.get("fx", "none")
+                _trail_front[:] = 0
+                _trail_side[:] = 0
 
     except WebSocketDisconnect:
         pass
