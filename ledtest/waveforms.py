@@ -1342,10 +1342,486 @@ def _render_wf_pulse(frame, w, h, t, fft, td, bass, mid, treble):
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# FFT-SPATIAL EXPERIMENTS — map FFT bins to spatial positions
-# Like Frequency Bars but with radial/angular/geometric layouts.
-# Each pixel samples a specific FFT bin based on its position.
+# FFT VISUALIZER EXPERIMENTS — smooth, like Frequency Bars
+#
+# GOLDEN RULE (learned from Frequency Bars):
+#   1. Each pixel's visual = direct mapping of FFT bin at that position
+#   2. Use _smooth() for fast attack / slow decay (no jerking)
+#   3. NO beat_push, NO time-based motion in audio mode
+#   4. DEFAULT mode uses t for gentle animation
+#   5. The visual IS the data — smooth because FFT changes smoothly
+#
+# Each experiment maps FFT bins to a different spatial layout:
+#   - Column (like freq bars), Radial, Angular, Ring-based, etc.
 # ═════════════════════════════════════════════════════════════════════════════
+
+def _get_fft_val(fft, norm_pos):
+    """Get smoothed FFT value at a normalized position (0-1).
+    Maps to FFT bins 0-127. Returns 0-1. Returns 0.3 for DEFAULT mode."""
+    if fft is None:
+        return 0.3
+    bi = max(0, min(127, int(norm_pos * 127)))
+    val = fft[bi] / 255.0
+    # Average with neighbors for smoothness
+    count = 1
+    for o in [-2, -1, 1, 2]:
+        nb = max(0, min(127, bi + o))
+        val += fft[nb] / 255.0 * (0.7 if abs(o) == 1 else 0.4)
+        count += 0.7 if abs(o) == 1 else 0.4
+    return val / count
+
+
+# Smooth state for experiments (separate from freq bars)
+_exp_smooth = np.zeros(512, dtype=np.float32)
+
+def _exp_smooth_val(idx, raw, attack=0.8, decay=0.92):
+    """Fast attack, slow decay smoothing — like Frequency Bars' _smooth."""
+    idx = idx % 512
+    if raw > _exp_smooth[idx]:
+        _exp_smooth[idx] = _exp_smooth[idx] * (1 - attack) + raw * attack
+    else:
+        _exp_smooth[idx] = _exp_smooth[idx] * decay + raw * (1 - decay)
+    return _exp_smooth[idx]
+
+
+# ─── Shared: pre-compute column FFT for an entire frame ──────────────────────
+
+def _precompute_col_fft(w, fft, smooth_offset=0):
+    """Pre-compute smoothed FFT value for each column. Like Freq Bars."""
+    vals = np.zeros(w, dtype=np.float32)
+    for x in range(w):
+        nx = x / max(w - 1, 1)
+        raw = _get_fft_val(fft, nx)
+        vals[x] = _exp_smooth_val(smooth_offset + x, raw)
+    return vals
+
+
+# ─── E2: Spectrum Mirror (bars from center, mirrored) ────────────────────────
+
+def _render_exp_spectrum_mirror(frame, w, h, t, fft, td, bass, mid, treble):
+    """Mirrored spectrum — bars grow from center up AND down."""
+    col_vals = _precompute_col_fft(w, fft, smooth_offset=0)
+    center = h // 2
+    for x in range(w):
+        nx = x / max(w - 1, 1)
+        bh = col_vals[x]
+        if bh < 0.03: continue  # silence threshold
+        half_h = int(bh * center)
+        r, g, b = _rainbow_color(nx, t, speed=0.08)
+        for dy in range(half_h + 1):
+            frac = dy / max(1, half_h)
+            intensity = 0.3 + 0.7 * frac
+            pr, pg, pb = int(r * intensity), int(g * intensity), int(b * intensity)
+            _set_pixel(frame, center - dy, x, pr, pg, pb)
+            _set_pixel(frame, center + dy, x, pr, pg, pb)
+
+
+# ─── E3: Radial Bars (FFT mapped to angle, bars radiate from center) ────────
+
+def _render_exp_radial_bars(frame, w, h, t, fft, td, bass, mid, treble):
+    """FFT bins mapped to angle — bars radiate outward from center."""
+    aspect = w / max(h, 1)
+    for y in range(h):
+        ny = y / (h-1) - 0.5
+        for x in range(w):
+            nx = (x / (w-1) - 0.5) * aspect
+            r = math.sqrt(nx*nx + ny*ny)
+            theta = math.atan2(ny, nx)
+            # Map angle to FFT bin
+            angle_norm = (theta + math.pi) / (2 * math.pi)
+            raw = _get_fft_val(fft, angle_norm)
+            bh = _exp_smooth_val(50 + int(angle_norm * 60), raw)
+            # Bar extends from center outward to bh
+            max_r = 0.5 + bh * 4.0  # how far the bar reaches
+            if r < max_r:
+                frac = r / max(0.01, max_r)
+                intensity = 0.3 + 0.7 * (1.0 - frac)
+                hue = (angle_norm + t * 0.05) % 1.0
+                rc, gc, bc = _rainbow_color(hue, t, speed=0, value=intensity)
+                _set_pixel(frame, y, x, rc, gc, bc)
+
+
+# ─── E4: Ring Spectrum (each ring = different FFT bin) ───────────────────────
+
+def _render_exp_ring_spectrum(frame, w, h, t, fft, td, bass, mid, treble):
+    """Concentric rings, each driven by a different FFT bin."""
+    aspect = w / max(h, 1)
+    for y in range(h):
+        ny = y / (h-1) - 0.5
+        for x in range(w):
+            nx = (x / (w-1) - 0.5) * aspect
+            r = math.sqrt(nx*nx + ny*ny)
+            # Which ring? Map radius to FFT bin
+            r_norm = min(1.0, r / 5.0)
+            raw = _get_fft_val(fft, r_norm)
+            bh = _exp_smooth_val(120 + int(r_norm * 50), raw)
+            if bh > 0.05:
+                hue = (r_norm + t * 0.03) % 1.0
+                rc, gc, bc = _rainbow_color(hue, t, speed=0, value=min(1.0, bh * 1.5))
+                _set_pixel(frame, y, x, rc, gc, bc)
+
+
+# ─── E5: Cymatics Nodal (FFT drives nodal line visibility) ──────────────────
+
+def _render_exp_cym_nodal(frame, w, h, t, fft, td, bass, mid, treble):
+    """Cymatics pattern visible only where FFT is active at that position."""
+    aspect = w / max(h, 1)
+    col_vals = _precompute_col_fft(w, fft, smooth_offset=180)
+    for y in range(h):
+        ny = y / (h-1) - 0.5
+        for x in range(w):
+            nx = (x / (w-1) - 0.5) * aspect
+            r = math.sqrt(nx*nx + ny*ny)
+            theta = math.atan2(ny, nx)
+            # Static cymatics pattern
+            p = math.cos(r * 4.0) * (0.6 + 0.4 * math.cos(6 * theta))
+            pattern = _nodal_line(p, 0.22)
+            # FFT controls visibility
+            val = pattern * col_vals[x] * 2.0
+            if val > 0.03:
+                hue = (theta / 6.28 * 0.6 + r * 0.5) % 1.0
+                rc, gc, bc = _rainbow_color(hue, t, speed=0, value=min(1.0, val))
+                _set_pixel(frame, y, x, rc, gc, bc)
+
+
+# ─── E6: Kal Nodal (kaleidoscope visible where FFT is active) ───────────────
+
+def _render_exp_kal_nodal(frame, w, h, t, fft, td, bass, mid, treble):
+    """Kaleidoscope pattern visible only where FFT energy exists."""
+    aspect = w / max(h, 1)
+    col_vals = _precompute_col_fft(w, fft, smooth_offset=240)
+    for y in range(h):
+        ny = y / (h-1) - 0.5
+        for x in range(w):
+            nx = (x / (w-1) - 0.5) * aspect
+            r = math.sqrt(nx*nx + ny*ny)
+            theta = math.atan2(ny, nx)
+            sector = math.pi / 4
+            si = int(theta / sector) if theta >= 0 else int(theta / sector) - 1
+            la = theta - si * sector
+            if si % 2 == 1: la = sector - la
+            fx, fy = r * math.cos(la), r * math.sin(la)
+            v = abs(math.sin(fx * 7.0)) * abs(math.cos(fy * 7.0))
+            val = v * col_vals[x] * 2.0
+            if val > 0.03:
+                hue = (la / sector * 0.5 + r * 0.4) % 1.0
+                rc, gc, bc = _rainbow_color(hue, t, speed=0, value=min(1.0, val))
+                _set_pixel(frame, y, x, rc, gc, bc)
+
+
+# ─── E7: Cym Ring Height (rings grow taller with FFT, like vertical bars but circular) ──
+
+def _render_exp_cym_ring_height(frame, w, h, t, fft, td, bass, mid, treble):
+    """Cymatics rings where each ring's thickness = FFT at that radius."""
+    aspect = w / max(h, 1)
+    for y in range(h):
+        ny = y / (h-1) - 0.5
+        for x in range(w):
+            nx = (x / (w-1) - 0.5) * aspect
+            r = math.sqrt(nx*nx + ny*ny)
+            theta = math.atan2(ny, nx)
+            r_norm = min(1.0, r / 5.0)
+            raw = _get_fft_val(fft, r_norm)
+            thickness = _exp_smooth_val(300 + int(r_norm * 40), raw) * 0.4 + 0.05
+            ring_phase = r * 5.0
+            ring_dist = abs(math.sin(ring_phase))
+            ang = 0.5 + 0.5 * math.cos(6 * theta)
+            val = max(0, 1.0 - ring_dist / thickness) * ang
+            if val > 0.03:
+                hue = (r_norm * 0.8 + theta / 6.28 * 0.2) % 1.0
+                rc, gc, bc = _rainbow_color(hue, t, speed=0, value=min(1.0, val * 1.3))
+                _set_pixel(frame, y, x, rc, gc, bc)
+
+
+# ─── E8: Wave Height (sine waves whose amplitude = FFT) ─────────────────────
+
+def _render_exp_wave_height(frame, w, h, t, fft, td, bass, mid, treble):
+    """3 sine waves whose amplitude at each X = FFT at that column."""
+    col_vals = _precompute_col_fft(w, fft, smooth_offset=350)
+    for x in range(w):
+        nx = x / max(w - 1, 1)
+        fft_h = col_vals[x]
+        r, g, b = _rainbow_color(nx, t, speed=0.05)
+        for i in range(3):
+            amp = fft_h * (0.15 + i * 0.05)
+            freq = 1.2 + i * 0.4
+            wave_y = 0.5 + amp * math.sin(nx * freq * math.pi * 2 + i * 1.5)
+            py = int(wave_y * (h - 1))
+            py = max(0, min(h - 1, py))
+            center = h // 2
+            # Fill from center to wave
+            y_lo, y_hi = min(center, py), max(center, py)
+            for y in range(y_lo, y_hi + 1):
+                frac = abs(y - center) / max(1, abs(py - center))
+                _set_pixel(frame, y, x, int(r * (0.3 + 0.7 * frac)),
+                           int(g * (0.3 + 0.7 * frac)), int(b * (0.3 + 0.7 * frac)))
+            # Bright line at wave position
+            _set_pixel(frame, py, x, min(255, r + 60), min(255, g + 60), min(255, b + 60))
+
+
+# ─── E9: Cym Breathing (FFT makes pattern inhale/exhale per-column) ─────────
+
+def _render_exp_cym_breathing(frame, w, h, t, fft, td, bass, mid, treble):
+    """Cymatics pattern that 'breathes' — FFT scales the spatial frequency per column."""
+    aspect = w / max(h, 1)
+    col_vals = _precompute_col_fft(w, fft, smooth_offset=400)
+    for y in range(h):
+        ny = y / (h-1) - 0.5
+        for x in range(w):
+            nx = (x / (w-1) - 0.5) * aspect
+            r = math.sqrt(nx*nx + ny*ny)
+            theta = math.atan2(ny, nx)
+            sf = 3.0 + col_vals[x] * 6.0  # spatial freq driven by FFT
+            p = math.cos(r * sf) * (0.6 + 0.4 * math.cos(6 * theta))
+            val = _nodal_line(p, 0.2 + col_vals[x] * 0.15)
+            if val > 0.03:
+                hue = (theta / 6.28 * 0.6 + r * 0.5) % 1.0
+                rc, gc, bc = _rainbow_color(hue, t, speed=0, value=min(1.0, val * 1.3))
+                _set_pixel(frame, y, x, rc, gc, bc)
+
+
+# ─── E10: Kal Breathing (kaleidoscope spatial freq driven by FFT) ───────────
+
+def _render_exp_kal_breathing(frame, w, h, t, fft, td, bass, mid, treble):
+    """Kaleidoscope that breathes — FFT drives inner detail complexity."""
+    aspect = w / max(h, 1)
+    col_vals = _precompute_col_fft(w, fft, smooth_offset=460)
+    for y in range(h):
+        ny = y / (h-1) - 0.5
+        for x in range(w):
+            nx = (x / (w-1) - 0.5) * aspect
+            r = math.sqrt(nx*nx + ny*ny)
+            theta = math.atan2(ny, nx)
+            sector = math.pi / 3
+            si = int(theta / sector) if theta >= 0 else int(theta / sector) - 1
+            la = theta - si * sector
+            if si % 2 == 1: la = sector - la
+            fx, fy = r * math.cos(la), r * math.sin(la)
+            sf = 4.0 + col_vals[x] * 8.0
+            v = math.sin(fx * sf) * math.cos(fy * sf * 0.7)
+            val = (v * 0.5 + 0.5) * (0.3 + col_vals[x] * 1.0)
+            if val > 0.03:
+                hue = (la / sector * 0.5 + r * 0.3) % 1.0
+                rc, gc, bc = _rainbow_color(hue, t, speed=0, value=min(1.0, val))
+                _set_pixel(frame, y, x, rc, gc, bc)
+
+
+# ─── E11: Waterfall Radial (scrolling spectrum mapped radially) ──────────────
+
+def _render_exp_waterfall_radial(frame, w, h, t, fft, td, bass, mid, treble):
+    """Radial waterfall — FFT energy at radius, angular spread."""
+    aspect = w / max(h, 1)
+    for y in range(h):
+        ny = y / (h-1) - 0.5
+        for x in range(w):
+            nx = (x / (w-1) - 0.5) * aspect
+            r = math.sqrt(nx*nx + ny*ny)
+            theta = math.atan2(ny, nx)
+            r_norm = min(1.0, r / 5.0)
+            raw = _get_fft_val(fft, r_norm)
+            val = _exp_smooth_val(500 + int(r_norm * 30), raw)
+            # Angular symmetry makes it kaleidoscopic
+            ang = 0.5 + 0.5 * math.cos(8 * theta)
+            val *= ang
+            if val > 0.03:
+                hue = (r_norm * 0.6 + theta / 6.28 * 0.3) % 1.0
+                rc, gc, bc = _rainbow_color(hue, t, speed=0, value=min(1.0, val * 1.5))
+                _set_pixel(frame, y, x, rc, gc, bc)
+
+
+# ─── E12-E21: Variations combining the above strategies ─────────────────────
+
+def _render_exp_bars_mirror_sym(frame, w, h, t, fft, td, bass, mid, treble):
+    """Mirrored bars with 4-fold symmetry — bars from center, left/right mirrored."""
+    col_vals = _precompute_col_fft(w, fft, smooth_offset=0)
+    center_y = h // 2
+    center_x = w // 2
+    for x in range(w):
+        # Mirror: use distance from center
+        mx = abs(x - center_x)
+        mx_norm = mx / max(center_x, 1)
+        bh = col_vals[min(w-1, center_x + mx)]  # sample from right half
+        half_h = int(bh * center_y)
+        r, g, b = _rainbow_color(mx_norm, t, speed=0.05)
+        for dy in range(half_h + 1):
+            frac = dy / max(1, half_h)
+            intensity = 0.3 + 0.7 * frac
+            pr, pg, pb = int(r * intensity), int(g * intensity), int(b * intensity)
+            _set_pixel(frame, center_y - dy, x, pr, pg, pb)
+            _set_pixel(frame, center_y + dy, x, pr, pg, pb)
+
+
+def _render_exp_cym_col_thick(frame, w, h, t, fft, td, bass, mid, treble):
+    """Cymatics with per-column line thickness driven by FFT."""
+    aspect = w / max(h, 1)
+    col_vals = _precompute_col_fft(w, fft, smooth_offset=180)
+    for y in range(h):
+        ny = y / (h-1) - 0.5
+        for x in range(w):
+            nx = (x / (w-1) - 0.5) * aspect
+            r = math.sqrt(nx*nx + ny*ny)
+            theta = math.atan2(ny, nx)
+            p = math.cos(r * 4.0) * (0.6 + 0.4 * math.cos(6 * theta))
+            thick = 0.05 + col_vals[x] * 0.35
+            val = _nodal_line(p, thick) * (0.3 + col_vals[x] * 1.2)
+            if val > 0.03:
+                hue = (theta / 6.28 * 0.6 + r * 0.5) % 1.0
+                rc, gc, bc = _rainbow_color(hue, t, speed=0, value=min(1.0, val * 1.3))
+                _set_pixel(frame, y, x, rc, gc, bc)
+
+
+def _render_exp_kal_col_thick(frame, w, h, t, fft, td, bass, mid, treble):
+    """Kaleidoscope with per-column line thickness from FFT."""
+    aspect = w / max(h, 1)
+    col_vals = _precompute_col_fft(w, fft, smooth_offset=240)
+    for y in range(h):
+        ny = y / (h-1) - 0.5
+        for x in range(w):
+            nx = (x / (w-1) - 0.5) * aspect
+            r = math.sqrt(nx*nx + ny*ny)
+            theta = math.atan2(ny, nx)
+            sector = math.pi / 4
+            si = int(theta / sector) if theta >= 0 else int(theta / sector) - 1
+            la = theta - si * sector
+            if si % 2 == 1: la = sector - la
+            fx, fy = r * math.cos(la), r * math.sin(la)
+            v = math.sin(fx * 7.0) * math.cos(fy * 7.0)
+            thick = 0.05 + col_vals[x] * 0.4
+            val = _nodal_line(v, thick) * (0.3 + col_vals[x] * 1.2)
+            if val > 0.03:
+                hue = (la / sector * 0.5 + r * 0.4) % 1.0
+                rc, gc, bc = _rainbow_color(hue, t, speed=0, value=min(1.0, val * 1.3))
+                _set_pixel(frame, y, x, rc, gc, bc)
+
+
+def _render_exp_cym_angular_fft(frame, w, h, t, fft, td, bass, mid, treble):
+    """Cymatics with FFT mapped to angular position — different freqs in different dirs."""
+    aspect = w / max(h, 1)
+    for y in range(h):
+        ny = y / (h-1) - 0.5
+        for x in range(w):
+            nx = (x / (w-1) - 0.5) * aspect
+            r = math.sqrt(nx*nx + ny*ny)
+            theta = math.atan2(ny, nx)
+            a_norm = (theta + math.pi) / (2 * math.pi)
+            raw = _get_fft_val(fft, a_norm)
+            bh = _exp_smooth_val(300 + int(a_norm * 50), raw)
+            p = math.cos(r * 4.0) * math.cos(6 * theta)
+            val = _nodal_line(p, 0.2) * (0.2 + bh * 2.0)
+            if val > 0.03:
+                hue = (a_norm * 0.8 + r * 0.3) % 1.0
+                rc, gc, bc = _rainbow_color(hue, t, speed=0, value=min(1.0, val * 1.3))
+                _set_pixel(frame, y, x, rc, gc, bc)
+
+
+def _render_exp_kal_angular_fft(frame, w, h, t, fft, td, bass, mid, treble):
+    """Kaleidoscope with FFT mapped to angle within sectors."""
+    aspect = w / max(h, 1)
+    for y in range(h):
+        ny = y / (h-1) - 0.5
+        for x in range(w):
+            nx = (x / (w-1) - 0.5) * aspect
+            r = math.sqrt(nx*nx + ny*ny)
+            theta = math.atan2(ny, nx)
+            sector = math.pi / 3
+            si = int(theta / sector) if theta >= 0 else int(theta / sector) - 1
+            la = theta - si * sector
+            if si % 2 == 1: la = sector - la
+            la_norm = la / sector
+            raw = _get_fft_val(fft, la_norm)
+            bh = _exp_smooth_val(360 + int(la_norm * 40), raw)
+            fx, fy = r * math.cos(la), r * math.sin(la)
+            v = math.sin(fx * 7.0) * math.cos(fy * 5.0)
+            val = (v * 0.5 + 0.5) * (0.2 + bh * 1.5)
+            if val > 0.03:
+                hue = (la_norm * 0.5 + r * 0.4) % 1.0
+                rc, gc, bc = _rainbow_color(hue, t, speed=0, value=min(1.0, val))
+                _set_pixel(frame, y, x, rc, gc, bc)
+
+
+def _render_exp_cym_fft_symmetry(frame, w, h, t, fft, td, bass, mid, treble):
+    """Cymatics where FFT per-column changes the angular symmetry order."""
+    aspect = w / max(h, 1)
+    col_vals = _precompute_col_fft(w, fft, smooth_offset=420)
+    for y in range(h):
+        ny = y / (h-1) - 0.5
+        for x in range(w):
+            nx = (x / (w-1) - 0.5) * aspect
+            r = math.sqrt(nx*nx + ny*ny)
+            theta = math.atan2(ny, nx)
+            n = 3.0 + col_vals[x] * 8.0  # symmetry order from FFT
+            p = math.cos(r * 4.0) * math.cos(n * theta)
+            val = _nodal_line(p, 0.22) * (0.3 + col_vals[x] * 1.2)
+            if val > 0.03:
+                hue = (theta / 6.28 * 0.6 + r * 0.5) % 1.0
+                rc, gc, bc = _rainbow_color(hue, t, speed=0, value=min(1.0, val * 1.3))
+                _set_pixel(frame, y, x, rc, gc, bc)
+
+
+def _render_exp_kal_fft_symmetry(frame, w, h, t, fft, td, bass, mid, treble):
+    """Kaleidoscope where FFT per-column changes sector count."""
+    aspect = w / max(h, 1)
+    col_vals = _precompute_col_fft(w, fft, smooth_offset=480)
+    for y in range(h):
+        ny = y / (h-1) - 0.5
+        for x in range(w):
+            nx = (x / (w-1) - 0.5) * aspect
+            r = math.sqrt(nx*nx + ny*ny)
+            theta = math.atan2(ny, nx)
+            n_sectors = max(3, int(3 + col_vals[x] * 8))
+            sector = math.pi / n_sectors
+            si = int(theta / sector) if theta >= 0 else int(theta / sector) - 1
+            la = theta - si * sector
+            if si % 2 == 1: la = sector - la
+            fx, fy = r * math.cos(la), r * math.sin(la)
+            v = abs(math.sin(fx * 6.0)) * abs(math.cos(fy * 6.0))
+            val = v * (0.3 + col_vals[x] * 1.2)
+            if val > 0.03:
+                hue = (la / sector * 0.5 + r * 0.3) % 1.0
+                rc, gc, bc = _rainbow_color(hue, t, speed=0, value=min(1.0, val))
+                _set_pixel(frame, y, x, rc, gc, bc)
+
+
+def _render_exp_cym_fft_color(frame, w, h, t, fft, td, bass, mid, treble):
+    """Cymatics where FFT drives the color at each position."""
+    aspect = w / max(h, 1)
+    col_vals = _precompute_col_fft(w, fft, smooth_offset=180)
+    for y in range(h):
+        ny = y / (h-1) - 0.5
+        for x in range(w):
+            nx = (x / (w-1) - 0.5) * aspect
+            r = math.sqrt(nx*nx + ny*ny)
+            theta = math.atan2(ny, nx)
+            p = math.cos(r * 4.0) * (0.6 + 0.4 * math.cos(6 * theta))
+            val = _nodal_line(p, 0.22) * (0.3 + col_vals[x] * 1.2)
+            if val > 0.03:
+                hue = (col_vals[x] * 0.7 + r * 0.2) % 1.0  # FFT drives hue
+                rc, gc, bc = _rainbow_color(hue, t, speed=0, value=min(1.0, val * 1.3))
+                _set_pixel(frame, y, x, rc, gc, bc)
+
+
+def _render_exp_kal_fft_color(frame, w, h, t, fft, td, bass, mid, treble):
+    """Kaleidoscope where FFT drives color — frequency = color spectrum."""
+    aspect = w / max(h, 1)
+    col_vals = _precompute_col_fft(w, fft, smooth_offset=240)
+    for y in range(h):
+        ny = y / (h-1) - 0.5
+        for x in range(w):
+            nx = (x / (w-1) - 0.5) * aspect
+            r = math.sqrt(nx*nx + ny*ny)
+            theta = math.atan2(ny, nx)
+            sector = math.pi / 4
+            si = int(theta / sector) if theta >= 0 else int(theta / sector) - 1
+            la = theta - si * sector
+            if si % 2 == 1: la = sector - la
+            fx, fy = r * math.cos(la), r * math.sin(la)
+            v = abs(math.sin(fx * 7.0)) * abs(math.cos(fy * 7.0))
+            val = v * (0.3 + col_vals[x] * 1.2)
+            if val > 0.03:
+                hue = (col_vals[x] * 0.7 + la / sector * 0.2) % 1.0
+                rc, gc, bc = _rainbow_color(hue, t, speed=0, value=min(1.0, val))
+                _set_pixel(frame, y, x, rc, gc, bc)
+
 
 def _fft_at(fft, bin_idx):
     """Safe FFT bin lookup, returns 0-1. Noise floor applied."""
@@ -2071,49 +2547,42 @@ def _render_cymatics_web(frame, w, h, t, fft, td, bass, mid, treble):
 # ─── Registry ────────────────────────────────────────────────────────────────
 
 WAVEFORMS = [
-    # ── #1 Frequency Bars (proven audio-reactive reference) ──
+    # ── 1. Frequency Bars (gold standard for audio reactivity) ──
     {"name": "Frequency Bars",    "render": _render_freq_bars},
-    # ── Cymatics Grid variants (tested via animated GIF harness) ──
+    # ── 2-20. FFT Experiments (smooth like Freq Bars — NO ticking) ──
+    {"name": "Spectrum Mirror",   "render": _render_exp_spectrum_mirror},      # 2
+    {"name": "Radial Bars",       "render": _render_exp_radial_bars},          # 3
+    {"name": "Ring Spectrum",     "render": _render_exp_ring_spectrum},         # 4
+    {"name": "Cym Nodal",         "render": _render_exp_cym_nodal},            # 5
+    {"name": "Kal Nodal",         "render": _render_exp_kal_nodal},            # 6
+    {"name": "Cym Ring Height",   "render": _render_exp_cym_ring_height},      # 7
+    {"name": "Wave Height",       "render": _render_exp_wave_height},          # 8
+    {"name": "Cym Breathing",     "render": _render_exp_cym_breathing},        # 9
+    {"name": "Kal Breathing",     "render": _render_exp_kal_breathing},        # 10
+    {"name": "Waterfall Radial",  "render": _render_exp_waterfall_radial},     # 11
+    {"name": "Bars Mirror Sym",   "render": _render_exp_bars_mirror_sym},      # 12
+    {"name": "Cym Col Thick",     "render": _render_exp_cym_col_thick},        # 13
+    {"name": "Kal Col Thick",     "render": _render_exp_kal_col_thick},        # 14
+    {"name": "Cym Angular",       "render": _render_exp_cym_angular_fft},      # 15
+    {"name": "Kal Angular",       "render": _render_exp_kal_angular_fft},      # 16
+    {"name": "Cym Symmetry",      "render": _render_exp_cym_fft_symmetry},     # 17
+    {"name": "Kal Symmetry",      "render": _render_exp_kal_fft_symmetry},     # 18
+    {"name": "Cym FFT Color",     "render": _render_exp_cym_fft_color},        # 19
+    {"name": "Kal FFT Color",     "render": _render_exp_kal_fft_color},        # 20
+    # ── 21+. Older visualizers ──
     {"name": "Cym Radiate",       "render": _render_cym_grid_radiate},
     {"name": "Cym Pulse",         "render": _render_cym_grid_pulse},
-    # ── Kaleidoscopes ──
     {"name": "Kal Crystal",       "render": _render_kal_crystal},
     {"name": "Kal Pulse",         "render": _render_kal_pulse},
     {"name": "Kal Star",          "render": _render_kal_star},
     {"name": "Kal Mandala",       "render": _render_kal_mandala},
-    # ── Cymatics ──
     {"name": "Cym Circles",       "render": _render_cym_circles},
     {"name": "Cym Diamonds",      "render": _render_cym_diamonds},
     {"name": "Cym Flower",        "render": _render_cym_flower},
-    # ── Waveforms ──
     {"name": "Wave Multi",        "render": _render_wf_multi_sine},
     {"name": "Wave Ocean",        "render": _render_wf_ocean},
     {"name": "Wave Cross",        "render": _render_wf_interference},
     {"name": "Wave Pulse",        "render": _render_wf_pulse},
-    # ── CYM FFT Experiments (spatial FFT mapping) ──
-    {"name": "Cym FFT Radial",    "render": _render_exp_cym_radial_fft},
-    {"name": "Cym FFT Angular",   "render": _render_exp_cym_angular_fft},
-    {"name": "Cym FFT Column",    "render": _render_exp_cym_column_fft},
-    {"name": "Cym FFT Rings",     "render": _render_exp_cym_fft_rings},
-    {"name": "Cym FFT Morph",     "render": _render_exp_cym_fft_morph},
-    {"name": "Cym FFT Push",      "render": _render_exp_cym_fft_radial_push},
-    {"name": "Cym FFT Thick",     "render": _render_exp_cym_fft_thickness},
-    {"name": "Cym FFT Color",     "render": _render_exp_cym_fft_color},
-    {"name": "Cym FFT Full",      "render": _render_exp_cym_fft_full},
-    {"name": "Cym FFT Wave",      "render": _render_exp_cym_fft_wave},
-    # ── KAL FFT Experiments (spatial FFT + kaleidoscope fold) ──
-    {"name": "Kal FFT Radial",    "render": _render_exp_kal_radial_fft},
-    {"name": "Kal FFT Angular",   "render": _render_exp_kal_angular_fft},
-    {"name": "Kal FFT Column",    "render": _render_exp_kal_column_fft},
-    {"name": "Kal FFT Rings",     "render": _render_exp_kal_fft_rings},
-    {"name": "Kal FFT Morph",     "render": _render_exp_kal_fft_morph},
-    {"name": "Kal FFT Push",      "render": _render_exp_kal_fft_push},
-    {"name": "Kal FFT Thick",     "render": _render_exp_kal_fft_thick},
-    {"name": "Kal FFT Color",     "render": _render_exp_kal_fft_color},
-    {"name": "Kal FFT Full",      "render": _render_exp_kal_fft_full},
-    {"name": "Kal FFT Wave",      "render": _render_exp_kal_fft_wave},
-    # ── Classic ──
-    {"name": "Spectrum Mirror",   "render": _render_spectrum_mirror},
     {"name": "Bar Wave",          "render": _render_bar_wave},
     {"name": "Freq Cardiogram",   "render": _render_freq_cardio},
     {"name": "Cardiogram",        "render": _render_cardiogram},
