@@ -1368,7 +1368,7 @@ def _render_exp_cym_radial_fft(frame, w, h, t, fft, td, bass, mid, treble):
             fft_val = _fft_at_radius(fft, r)
             # Pattern shape modulated by FFT at this radius
             p = math.cos(r * 5.0 - bp * 0.8) * (0.5 + 0.5 * math.cos(6 * theta))
-            val = nodal_line(p, 0.2) * (0.4 + fft_val * 1.2)
+            val = _nodal_line(p, 0.2) * (0.4 + fft_val * 1.2)
             if val > 0.02:
                 hue = (theta/6.28*0.6 + r*0.8 + t*0.02) % 1.0
                 rc, gc, bc = _rainbow_color(hue, t, speed=0, value=min(1, val*1.3))
@@ -1389,7 +1389,7 @@ def _render_exp_cym_angular_fft(frame, w, h, t, fft, td, bass, mid, treble):
             angle_norm = (theta + math.pi) / (2 * math.pi)  # 0-1
             fft_val = _fft_at_norm(fft, angle_norm)
             p = math.cos(r * 5.0 - bp * 0.8) * math.cos(6 * theta)
-            val = nodal_line(p, 0.2) * (0.4 + fft_val * 1.2)
+            val = _nodal_line(p, 0.2) * (0.4 + fft_val * 1.2)
             if val > 0.02:
                 hue = (theta/6.28*0.6 + r*0.5 + t*0.02) % 1.0
                 rc, gc, bc = _rainbow_color(hue, t, speed=0, value=min(1, val*1.3))
@@ -1410,7 +1410,7 @@ def _render_exp_cym_column_fft(frame, w, h, t, fft, td, bass, mid, treble):
             col_fft = _fft_at(fft, (x / max(w-1, 1)) * 100)
             # Cymatics pattern is always there
             p = math.cos(r * 4.0 - bp * 0.6) * (0.5 + 0.5 * math.cos(6 * theta))
-            pattern_val = nodal_line(p, 0.22)
+            pattern_val = _nodal_line(p, 0.22)
             # FFT modulates which rows are visible (like bar height)
             row_norm = 1.0 - (y / (h-1))  # 0 at bottom, 1 at top
             bar_visible = 1.0 if row_norm < col_fft else 0.1
@@ -1461,7 +1461,7 @@ def _render_exp_cym_fft_morph(frame, w, h, t, fft, td, bass, mid, treble):
             col_fft = _fft_at(fft, (x / max(w-1, 1)) * 80)
             n_ang = 3.0 + col_fft * 8.0  # 3 to 11 fold symmetry per column
             p = math.cos(r * 4.0 - bp * 0.6) * math.cos(n_ang * theta)
-            val = nodal_line(p, 0.22) * (0.3 + col_fft * 1.0)
+            val = _nodal_line(p, 0.22) * (0.3 + col_fft * 1.0)
             if val > 0.02:
                 hue = (theta/6.28*0.5 + r*0.6 + t*0.02) % 1.0
                 rc, gc, bc = _rainbow_color(hue, t, speed=0, value=min(1, val*1.3))
@@ -1483,7 +1483,7 @@ def _render_exp_cym_fft_radial_push(frame, w, h, t, fft, td, bass, mid, treble):
             # Each direction has its own outward push based on FFT
             local_push = bp * 0.5 + fft_val * 3.0
             p = math.cos(r * 4.0 - local_push) * (0.5 + 0.5 * math.cos(6 * theta))
-            val = nodal_line(p, 0.22) * (0.3 + fft_val * 1.0)
+            val = _nodal_line(p, 0.22) * (0.3 + fft_val * 1.0)
             if val > 0.02:
                 hue = (theta/6.28*0.6 + r*0.6 + t*0.02) % 1.0
                 rc, gc, bc = _rainbow_color(hue, t, speed=0, value=min(1, val*1.3))
@@ -1503,7 +1503,7 @@ def _render_exp_cym_fft_thickness(frame, w, h, t, fft, td, bass, mid, treble):
             col_fft = _fft_at(fft, (x / max(w-1,1)) * 80)
             thickness = 0.08 + col_fft * 0.35  # thin when quiet, fat when loud
             p = math.cos(r * 4.0 - bp * 0.6) * (0.5 + 0.5 * math.cos(6 * theta))
-            val = nodal_line(p, thickness)
+            val = _nodal_line(p, thickness)
             if val > 0.02:
                 hue = (theta/6.28*0.6 + r*0.6 + t*0.02) % 1.0
                 rc, gc, bc = _rainbow_color(hue, t, speed=0, value=min(1, val*1.2))
@@ -1522,7 +1522,7 @@ def _render_exp_cym_fft_color(frame, w, h, t, fft, td, bass, mid, treble):
             theta = math.atan2(ny, nx)
             col_fft = _fft_at(fft, (x / max(w-1,1)) * 100)
             p = math.cos(r * 4.0 - bp * 0.6) * (0.5 + 0.5 * math.cos(6 * theta))
-            val = nodal_line(p, 0.22) * (0.3 + col_fft * 1.2)
+            val = _nodal_line(p, 0.22) * (0.3 + col_fft * 1.2)
             if val > 0.02:
                 # FFT drives hue — active frequencies glow in their spectral color
                 hue = (col_fft * 0.8 + t * 0.02) % 1.0
@@ -1549,7 +1549,7 @@ def _render_exp_cym_fft_full(frame, w, h, t, fft, td, bass, mid, treble):
             r_freq = 3.0 + r_fft * 4.0
             thickness = 0.1 + c_fft * 0.25
             p = math.cos(r * r_freq - bp * 0.6) * math.cos(n_ang * theta)
-            val = nodal_line(p, thickness) * (0.4 + (r_fft + a_fft + c_fft) / 3 * 1.0)
+            val = _nodal_line(p, thickness) * (0.4 + (r_fft + a_fft + c_fft) / 3 * 1.0)
             if val > 0.02:
                 hue = (c_fft * 0.5 + theta/6.28*0.3 + t*0.02) % 1.0
                 rc, gc, bc = _rainbow_color(hue, t, speed=0, value=min(1, val*1.3))
@@ -1753,7 +1753,7 @@ def _render_exp_kal_fft_thick(frame, w, h, t, fft, td, bass, mid, treble):
             thickness = 0.05 + r_fft * 0.4
             fx, fy = r * math.cos(la), r * math.sin(la)
             v = math.sin(fx * 7.0 + bp * 0.3) * math.cos(fy * 7.0 - bp * 0.2)
-            val = nodal_line(v, thickness)
+            val = _nodal_line(v, thickness)
             if val > 0.02:
                 hue = (la / sector + r * 0.4 + t * 0.03) % 1.0
                 rc, gc, bc = _rainbow_color(hue, t, speed=0, value=min(1, val * 1.2))
@@ -1806,7 +1806,7 @@ def _render_exp_kal_fft_full(frame, w, h, t, fft, td, bass, mid, treble):
             push = bp * 0.3 + a_fft * 2.0
             v = math.sin(fx * sf - push) * math.cos(fy * sf * 0.8 + push * 0.5)
             thickness = 0.08 + r_fft * 0.3
-            val = nodal_line(v, thickness) * (0.4 + (r_fft + a_fft + c_fft) / 3 * 1.0)
+            val = _nodal_line(v, thickness) * (0.4 + (r_fft + a_fft + c_fft) / 3 * 1.0)
             if val > 0.02:
                 hue = (c_fft * 0.4 + la / sector * 0.3 + r * 0.2 + t * 0.02) % 1.0
                 rc, gc, bc = _rainbow_color(hue, t, speed=0, value=min(1, val * 1.2))
