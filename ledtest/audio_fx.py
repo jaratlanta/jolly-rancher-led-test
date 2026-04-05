@@ -167,7 +167,7 @@ class AudioEngine:
                 self._metro_time *= 0.95
 
     def tick(self, dt):
-        if not self.enabled or not self.audio_on:
+        if not self.enabled:
             return
 
         # Smooth band values
