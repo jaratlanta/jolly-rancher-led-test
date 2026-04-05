@@ -852,7 +852,7 @@ EXPERIMENTS = [
 running = True
 
 def render_loop():
-    global running
+    global running, ws_clients
     dt = 1.0 / FPS
     t = 0
 
