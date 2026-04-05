@@ -52,7 +52,7 @@ FPS = 20
 
 # FX state
 current_fx = "none"  # "none", "glow", "trail"
-FX_LIST = ["none", "glow", "trail"]
+FX_LIST = ["none", "glow", "trail", "sparkle"]
 
 # Trail buffers (persistent frame that decays)
 _trail_front = np.zeros((FRONT_H, FRONT_W, 3), dtype=np.float32)
@@ -312,28 +312,30 @@ def exp_bars_mirror(frame, w, h, t, col_fft):
 
 
 def exp_spectrum_waterfall(frame, w, h, t, col_fft):
-    """P4. Spectrum waterfall — FFT scrolls vertically, newest at top."""
-    # Use a persistent buffer for scrolling history
+    """P4. Spectrum waterfall — scrolling spectrogram. Each row = one FFT snapshot.
+    Newest at TOP, scrolls DOWN. Colors shift with age. Very audio-reactive."""
     if not hasattr(exp_spectrum_waterfall, '_buf'):
-        exp_spectrum_waterfall._buf = np.zeros((100, 300, 3), dtype=np.uint8)
+        exp_spectrum_waterfall._buf = np.zeros((50, 300, 3), dtype=np.float32)
     buf = exp_spectrum_waterfall._buf
     bh, bw = buf.shape[:2]
-    # Shift down
-    buf[1:, :, :] = buf[:-1, :, :]
+    # Shift down and fade
+    buf[1:, :, :] = buf[:-1, :, :] * 0.95  # age fade
     buf[0, :, :] = 0
-    # Write current FFT to top row
+    # Write MIRRORED FFT to top row (symmetric, more visible audio)
+    mirror_fft = get_col_fft_mirror(w, offset=270)
     for x in range(min(w, bw)):
-        fv = col_fft[x] if x < len(col_fft) else 0
+        fv = mirror_fft[x]
         if fv > 0.02:
-            hue = (x / max(w-1, 1) + t * 0.03) % 1.0
-            r, g, b = hsv(hue, 0.85, min(1.0, fv * 1.5))
+            hue = (x / max(w-1, 1) * 0.8 + t * 0.03) % 1.0
+            r, g, b = hsv(hue, 0.85, min(1.0, fv * 2.0))
             buf[0, x] = [r, g, b]
-    # Copy visible portion to frame
+    # Copy to frame — map h rows to buf rows
     for y in range(h):
-        src_y = int(y / (h-1) * min(bh-1, h * 3))
-        for x in range(w):
-            if x < bw and src_y < bh:
-                frame[y, x] = buf[src_y, x]
+        src_y = min(bh - 1, int(y * bh / h))
+        for x in range(min(w, bw)):
+            v = buf[src_y, x]
+            if v[0] > 2 or v[1] > 2 or v[2] > 2:
+                frame[y, x] = np.clip(v, 0, 255).astype(np.uint8)
 
 
 def exp_mirror_spectrum(frame, w, h, t, col_fft):
@@ -414,14 +416,15 @@ def exp_horizon(frame, w, h, t, col_fft):
 
 
 def exp_plasma_fft(frame, w, h, t, col_fft):
-    """P9. Plasma clouds — FFT controls plasma intensity per column."""
+    """P9. Plasma clouds — FFT modulates plasma. No center gap."""
     mirror_fft = get_col_fft_mirror(w, offset=250)
+    # Overall energy for base visibility
+    overall = max(0.15, sum(col_fft) / max(len(col_fft), 1))
     for y in range(h):
         ny = y / (h-1)
         for x in range(w):
             nx = x / (w-1)
-            fv = mirror_fft[x]
-            if fv < 0.02: continue
+            fv = max(mirror_fft[x], overall * 0.5)  # never fully dark
             v1 = math.sin(nx * 6 + t * 1.2) * math.cos(ny * 5 - t * 0.6)
             v2 = math.cos(nx * 4 + ny * 3 + t * 0.4)
             v3 = math.sin(math.sqrt(nx*nx + ny*ny) * 4 + t * 0.8)
@@ -557,11 +560,12 @@ def exp_cym_rings(frame, w, h, t, col_fft):
 
 
 def exp_cym_expanding(frame, w, h, t, col_fft):
-    """C7. Expanding cymatics — rings grow from center, size = overall FFT energy."""
+    """C7. Expanding + twirling cymatics — shape rotates and morphs with audio."""
     aspect = w / max(h, 1)
-    # Overall energy drives the radius of visible pattern
     overall = sum(col_fft) / max(len(col_fft), 1)
     vis_radius = overall * 8.0 + 0.5
+    # Rotation driven by accumulated energy
+    rotation = smooth(499, overall) * 2.0
     for y in range(h):
         ny = y / (h-1) - 0.5
         for x in range(w):
@@ -569,10 +573,12 @@ def exp_cym_expanding(frame, w, h, t, col_fft):
             r = math.sqrt(nx*nx + ny*ny)
             theta = math.atan2(ny, nx)
             if r > vis_radius: continue
-            p = math.cos(r * 4.0) * (0.6 + 0.4 * math.cos(8 * theta))
-            p2 = math.cos(r * 7.0) * math.cos(6 * theta) * 0.4
+            # Twirl: rotation increases with radius (spiral effect)
+            twisted = theta + rotation + r * overall * 2.0
+            n_ang = int(4 + overall * 6)  # shape morphs with energy
+            p = math.cos(r * (3.0 + overall * 3.0)) * (0.6 + 0.4 * math.cos(n_ang * twisted))
+            p2 = math.cos(r * 6.0) * math.cos((n_ang + 2) * twisted) * 0.4
             val = max(nodal(p, 0.22), nodal(p2, 0.18) * 0.5)
-            # Fade at edge of visible radius
             edge = max(0, 1.0 - (r / vis_radius) ** 2) if vis_radius > 0.01 else 0
             val *= edge
             if val > 0.03:
@@ -604,21 +610,22 @@ def exp_cym_dual(frame, w, h, t, col_fft):
 
 
 def exp_cym_star(frame, w, h, t, col_fft):
-    """C9. Star burst — radial FFT drives star (symmetric)."""
+    """C9. Star burst — expanded gradients, fills panel. Mirrored FFT."""
     aspect = w / max(h, 1)
+    mirror_fft = get_col_fft_mirror(w, offset=450)
     for y in range(h):
         ny = y / (h-1) - 0.5
         for x in range(w):
             nx = (x / (w-1) - 0.5) * aspect
             r = math.sqrt(nx*nx + ny*ny)
             theta = math.atan2(ny, nx)
-            r_norm = min(1.0, r / 5.0)
-            fv = smooth(450 + int(r_norm * 50), get_fft(r_norm))
-            if fv < 0.03: continue
+            fv = mirror_fft[x]
+            if fv < 0.02: continue
             points = int(4 + fv * 8)
             star = abs(math.cos(points * theta))
-            ring = math.cos(r * (3.0 + fv * 4.0))
-            val = star * max(0, ring) * fv * 2.0
+            ring = math.cos(r * (2.0 + fv * 3.0))  # wider rings
+            # Wider gradient — fills more space
+            val = (star * 0.6 + 0.4) * (max(0, ring) * 0.7 + 0.3) * fv * 1.8
             if val > 0.03:
                 hue = (theta / 6.28 * 0.6 + r * 0.4 + t * 0.02) % 1.0
                 rc, gc, bc = hsv(hue, 0.85, min(1.0, val * 1.3))
@@ -626,7 +633,7 @@ def exp_cym_star(frame, w, h, t, col_fft):
 
 
 def exp_cym_flower(frame, w, h, t, col_fft):
-    """C10. Flower petals — bigger, fills more space. Mirrored FFT."""
+    """C10. Flower petals — soft gradients, no hard edges."""
     aspect = w / max(h, 1)
     mirror_fft = get_col_fft_mirror(w, offset=440)
     for y in range(h):
@@ -636,16 +643,19 @@ def exp_cym_flower(frame, w, h, t, col_fft):
             r = math.sqrt(nx*nx + ny*ny)
             theta = math.atan2(ny, nx)
             fv = mirror_fft[x]
-            if fv < 0.03: continue
+            if fv < 0.02: continue
             petals = int(5 + fv * 5)
             petal = abs(math.cos(petals * theta * 0.5))
-            petal_r = fv * 0.8 * (0.5 + 0.5 * petal)  # much bigger
-            if r < petal_r * 6:
-                inner = math.cos(r * (8 + fv * 10))
-                val = (0.3 + 0.7 * max(0, inner)) * fv * 1.5
-                if val > 0.03:
-                    hue = (theta / 6.28 * 0.5 + r * 0.8 + t * 0.02) % 1.0
-                    rc, gc, bc = hsv(hue, 0.8, min(1.0, val))
+            petal_r = fv * 1.0 * (0.5 + 0.5 * petal)
+            # Soft falloff instead of hard edge
+            dist = r / max(0.01, petal_r * 5)
+            softness = max(0, 1.0 - dist * dist)  # quadratic falloff
+            if softness > 0.01:
+                inner = math.cos(r * (6 + fv * 8))
+                val = softness * (0.4 + 0.6 * max(0, inner)) * fv * 1.8
+                if val > 0.02:
+                    hue = (theta / 6.28 * 0.5 + r * 0.6 + t * 0.02) % 1.0
+                    rc, gc, bc = hsv(hue, 0.75, min(1.0, val))
                     frame[y, x] = [rc, gc, bc]
 
 
@@ -1086,23 +1096,54 @@ running = True
 def apply_fx(frame, trail_buf):
     """Apply current FX to a rendered frame."""
     if current_fx == "glow":
-        # Glow: blur bright pixels into neighbors (3x3 box blur + additive)
+        # Glow: multi-pass blur to soften hard LED edges into smooth gradients
         f = frame.astype(np.float32)
-        h, w = f.shape[:2]
-        blurred = np.zeros_like(f)
-        for dy in range(-1, 2):
-            for dx in range(-1, 2):
-                blurred += np.roll(np.roll(f, dy, axis=0), dx, axis=1)
-        blurred /= 9.0
-        result = f + blurred * 0.6
+        # 3 passes of box blur for a soft, diffused look
+        for _ in range(3):
+            blurred = np.zeros_like(f)
+            for dy in range(-1, 2):
+                for dx in range(-1, 2):
+                    blurred += np.roll(np.roll(f, dy, axis=0), dx, axis=1)
+            f = blurred / 9.0
+        # Blend: mostly blurred, some original for definition
+        result = f * 0.7 + frame.astype(np.float32) * 0.3
         return np.clip(result, 0, 255).astype(np.uint8)
 
     elif current_fx == "trail":
-        # Trail: persistent afterglow that fades
+        # Trail: long persistent afterglow — extreme for cool movement effects
         f = frame.astype(np.float32)
-        trail_buf *= 0.85  # decay
-        trail_buf[:] = np.maximum(trail_buf, f * 0.9)  # stamp new brights
-        # Shift trail color toward blue as it ages
+        trail_buf *= 0.92  # slow decay = long trails
+        trail_buf[:] = np.maximum(trail_buf, f)  # stamp current frame
+        # Color shift: old trails shift toward blue/purple
+        aged = trail_buf.copy()
+        # Reduce red, boost blue as trail ages
+        diff = trail_buf - f
+        age_mask = (diff.max(axis=2) > 10)
+        aged[age_mask, 0] *= 0.85  # red fades
+        aged[age_mask, 2] = np.minimum(255, aged[age_mask, 2] * 1.1)  # blue grows
+        result = np.maximum(f, aged)
+        return np.clip(result, 0, 255).astype(np.uint8)
+
+    elif current_fx == "sparkle":
+        # Sparkle: bright pixels throw off color sparks that drift
+        f = frame.astype(np.float32)
+        trail_buf *= 0.75  # faster decay than trail
+        # Find bright moving pixels and scatter sparks
+        bright = f.max(axis=2)
+        h, w = f.shape[:2]
+        spark_ys, spark_xs = np.where(bright > 80)
+        if len(spark_ys) > 0:
+            # Random subset of bright pixels become spark sources
+            n_sparks = min(30, len(spark_ys))
+            indices = np.random.choice(len(spark_ys), n_sparks, replace=False)
+            for idx in indices:
+                sy, sx = int(spark_ys[idx]), int(spark_xs[idx])
+                # Scatter to random nearby position
+                dy = sy + np.random.randint(-3, 4)
+                dx = sx + np.random.randint(-5, 6)
+                dy = max(0, min(h-1, dy))
+                dx = max(0, min(w-1, dx))
+                trail_buf[dy, dx] = np.maximum(trail_buf[dy, dx], f[sy, sx] * 0.8)
         result = np.maximum(f, trail_buf)
         return np.clip(result, 0, 255).astype(np.uint8)
 

@@ -79,6 +79,7 @@
         <button class="fx-btn active" id="fx-none">None</button>
         <button class="fx-btn" id="fx-glow">Glow</button>
         <button class="fx-btn" id="fx-trail">Trail</button>
+        <button class="fx-btn" id="fx-sparkle">Sparkle</button>
     </div>
 </div>
 
@@ -254,7 +255,7 @@ document.getElementById('exp-name').addEventListener('click', () => {
     }, 800);
 });
 // FX buttons
-['none', 'glow', 'trail'].forEach(fx => {
+['none', 'glow', 'trail', 'sparkle'].forEach(fx => {
     document.getElementById('fx-' + fx).addEventListener('click', () => {
         send({ cmd: 'set_fx', fx });
         document.querySelectorAll('.fx-btn').forEach(b => b.classList.remove('active'));
