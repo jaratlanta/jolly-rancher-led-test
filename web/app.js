@@ -1606,5 +1606,17 @@ initWebcamElements();
 loadModels();
 loadDiagnostics();
 loadFX();
-// Audio mode is handled by DEFAULT/AUDIO(BEAT) toggle
+loadAudioModes();
 connect();
+
+// Auto-start in Visualizer + Audio mode after connection
+// (mic permission prompt will appear on first load)
+setTimeout(() => {
+    if (!waveformActive) {
+        startWaveform();
+        waveformAudioMode = true;
+        send({ cmd: 'set_waveform_audio', on: true });
+        startWaveformAudio();
+        updateSourceUI();
+    }
+}, 2000);  // wait for WebSocket to connect

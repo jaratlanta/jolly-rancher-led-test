@@ -16,4 +16,4 @@ START_UNIVERSE = 1       # first E1.31 universe number
 FPS = 30                 # frames per second
 BRIGHTNESS_CAP = 200     # max channel value (0-255), limits power draw
 
-DEFAULT_MODEL = "test_panel"  # "test_panel" or "jolly_rancher"
+DEFAULT_MODEL = "jolly_rancher"  # "test_panel" or "jolly_rancher"

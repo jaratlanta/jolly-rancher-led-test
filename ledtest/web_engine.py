@@ -51,10 +51,10 @@ class FrameEngine:
         # Symmetry mode for bull's head (left mirrors right)
         self.symmetry = True
 
-        # Waveform mode
-        self.waveform_mode = False
+        # Waveform mode — default ON with audio sub-mode
+        self.waveform_mode = True
         self.waveform_idx = 0
-        self.waveform_audio = False  # DEFAULT or AUDIO sub-mode
+        self.waveform_audio = True  # Start in AUDIO sub-mode
 
         # Webcam mode
         self.webcam_mode = False
