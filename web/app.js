@@ -1589,6 +1589,19 @@ document.getElementById('bpm-full-btn').addEventListener('click', () => {
     document.getElementById('bpm-half-btn').classList.remove('active');
 });
 
+// ─── Diffuser ───────────────────────────────────────────────────────────────
+
+document.getElementById('diffuser-slider').addEventListener('input', (e) => {
+    const val = parseInt(e.target.value) / 100;  // 0 to 1
+    // Apply CSS blur to all canvas elements — simulates milky diffuser depth
+    // At 0: sharp pixels. At 1: fully amorphous glow.
+    const blurPx = val * 12;  // 0 to 12px blur
+    const canvases = document.querySelectorAll('canvas');
+    canvases.forEach(c => {
+        c.style.filter = blurPx > 0.1 ? `blur(${blurPx}px)` : 'none';
+    });
+});
+
 // ─── Init ────────────────────────────────────────────────────────────────────
 
 initWebcamElements();

@@ -81,6 +81,41 @@ body {
     box-shadow: 0 0 8px rgba(0, 204, 255, 0.2);
 }
 
+/* ─── Diffuser Control ────────────────────────────────────────────────────── */
+
+.diffuser-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.diffuser-label {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    white-space: nowrap;
+}
+
+.diffuser-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 80px;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--border);
+    outline: none;
+}
+
+.diffuser-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    cursor: pointer;
+}
+
 /* ─── Status ──────────────────────────────────────────────────────────────── */
 
 .status {
