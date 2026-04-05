@@ -1337,6 +1337,23 @@ def _fft_at(fft, bin_idx):
     return fft[bi] / 255.0
 
 
+def _fft_at_norm(fft, norm_val):
+    """FFT lookup from a 0-1 normalized value. Maps full range to 0-127."""
+    if fft is None:
+        return 0.3
+    bi = max(0, min(127, int(norm_val * 127)))
+    return fft[bi] / 255.0
+
+
+def _fft_at_radius(fft, r, max_r=5.0):
+    """FFT lookup mapped to radius. r=0 → bin 0 (bass), r=max_r → bin 127 (treble)."""
+    if fft is None:
+        return 0.3
+    norm = min(1.0, r / max_r)
+    bi = max(0, min(127, int(norm * 127)))
+    return fft[bi] / 255.0
+
+
 def _render_exp_cym_radial_fft(frame, w, h, t, fft, td, bass, mid, treble):
     """CYM: FFT bins mapped to radius — bass at center, treble at edges."""
     aspect = w / max(h, 1)
@@ -1348,10 +1365,10 @@ def _render_exp_cym_radial_fft(frame, w, h, t, fft, td, bass, mid, treble):
             r = math.sqrt(nx*nx + ny*ny)
             theta = math.atan2(ny, nx)
             # Map radius to FFT bin: center=bass, edges=treble
-            fft_val = _fft_at(fft, r * 200)
+            fft_val = _fft_at_radius(fft, r)
             # Pattern shape modulated by FFT at this radius
             p = math.cos(r * 5.0 - bp * 0.8) * (0.5 + 0.5 * math.cos(6 * theta))
-            val = nodal_line(p, 0.2) * (0.2 + fft_val * 1.5)
+            val = nodal_line(p, 0.2) * (0.4 + fft_val * 1.2)
             if val > 0.02:
                 hue = (theta/6.28*0.6 + r*0.8 + t*0.02) % 1.0
                 rc, gc, bc = _rainbow_color(hue, t, speed=0, value=min(1, val*1.3))
@@ -1370,9 +1387,9 @@ def _render_exp_cym_angular_fft(frame, w, h, t, fft, td, bass, mid, treble):
             theta = math.atan2(ny, nx)
             # Map angle to FFT bin
             angle_norm = (theta + math.pi) / (2 * math.pi)  # 0-1
-            fft_val = _fft_at(fft, angle_norm * 80)
+            fft_val = _fft_at_norm(fft, angle_norm)
             p = math.cos(r * 5.0 - bp * 0.8) * math.cos(6 * theta)
-            val = nodal_line(p, 0.2) * (0.2 + fft_val * 1.5)
+            val = nodal_line(p, 0.2) * (0.4 + fft_val * 1.2)
             if val > 0.02:
                 hue = (theta/6.28*0.6 + r*0.5 + t*0.02) % 1.0
                 rc, gc, bc = _rainbow_color(hue, t, speed=0, value=min(1, val*1.3))
@@ -1423,7 +1440,7 @@ def _render_exp_cym_fft_rings(frame, w, h, t, fft, td, bass, mid, treble):
             ring_val = max(0, 1.0 - ring_dist * 8.0)  # sharp ring lines
             # Angular symmetry
             ang = 0.5 + 0.5 * math.cos(6 * theta)
-            val = ring_val * ang * (0.15 + fft_val * 1.5)
+            val = ring_val * ang * (0.4 + fft_val * 1.2)
             if val > 0.02:
                 hue = (ring_int * 0.1 + theta/6.28*0.3 + t*0.02) % 1.0
                 rc, gc, bc = _rainbow_color(hue, t, speed=0, value=min(1, val*1.3))
@@ -1462,7 +1479,7 @@ def _render_exp_cym_fft_radial_push(frame, w, h, t, fft, td, bass, mid, treble):
             r = math.sqrt(nx*nx + ny*ny)
             theta = math.atan2(ny, nx)
             angle_norm = (theta + math.pi) / (2 * math.pi)
-            fft_val = _fft_at(fft, angle_norm * 60)
+            fft_val = _fft_at_norm(fft, angle_norm)
             # Each direction has its own outward push based on FFT
             local_push = bp * 0.5 + fft_val * 3.0
             p = math.cos(r * 4.0 - local_push) * (0.5 + 0.5 * math.cos(6 * theta))
@@ -1524,15 +1541,15 @@ def _render_exp_cym_fft_full(frame, w, h, t, fft, td, bass, mid, treble):
             r = math.sqrt(nx*nx + ny*ny)
             theta = math.atan2(ny, nx)
             # Multiple FFT lookups for different spatial features
-            r_fft = _fft_at(fft, r * 150)         # radius → FFT bin
-            a_fft = _fft_at(fft, ((theta+math.pi)/(2*math.pi)) * 60)  # angle → FFT bin
+            r_fft = _fft_at_radius(fft, r)         # radius → FFT bin
+            a_fft = _fft_at_norm(fft, (theta+math.pi)/(2*math.pi))  # angle → FFT bin
             c_fft = _fft_at(fft, (x / max(w-1,1)) * 100)  # column → FFT bin
             # Pattern with FFT-driven features
             n_ang = 4.0 + a_fft * 5.0
             r_freq = 3.0 + r_fft * 4.0
             thickness = 0.1 + c_fft * 0.25
             p = math.cos(r * r_freq - bp * 0.6) * math.cos(n_ang * theta)
-            val = nodal_line(p, thickness) * (0.2 + (r_fft + a_fft + c_fft) / 3 * 1.2)
+            val = nodal_line(p, thickness) * (0.4 + (r_fft + a_fft + c_fft) / 3 * 1.0)
             if val > 0.02:
                 hue = (c_fft * 0.5 + theta/6.28*0.3 + t*0.02) % 1.0
                 rc, gc, bc = _rainbow_color(hue, t, speed=0, value=min(1, val*1.3))
@@ -1581,10 +1598,10 @@ def _render_exp_kal_radial_fft(frame, w, h, t, fft, td, bass, mid, treble):
             si = int(theta / sector) if theta >= 0 else int(theta / sector) - 1
             la = theta - si * sector
             if si % 2 == 1: la = sector - la
-            fft_val = _fft_at(fft, r * 180)
+            fft_val = _fft_at_radius(fft, r)
             fx, fy = r * math.cos(la), r * math.sin(la)
             v = math.sin(fx * 8.0 + bp * 0.5) * math.cos(fy * 8.0 - bp * 0.3)
-            val = (v * 0.5 + 0.5) * (0.2 + fft_val * 1.5)
+            val = (v * 0.5 + 0.5) * (0.4 + fft_val * 1.2)
             if val > 0.02:
                 hue = (la / sector + r * 0.4 + t * 0.03) % 1.0
                 rc, gc, bc = _rainbow_color(hue, t, speed=0, value=min(1, val))
@@ -1605,10 +1622,10 @@ def _render_exp_kal_angular_fft(frame, w, h, t, fft, td, bass, mid, treble):
             si = int(theta / sector) if theta >= 0 else int(theta / sector) - 1
             la = theta - si * sector
             if si % 2 == 1: la = sector - la
-            fft_val = _fft_at(fft, (la / sector) * 80)
+            fft_val = _fft_at_norm(fft, la / sector)
             fx, fy = r * math.cos(la), r * math.sin(la)
             v = math.sin(fx * 8.0 + bp * 0.4) * math.cos(fy * 6.0 - bp * 0.3)
-            val = (v * 0.5 + 0.5) * (0.2 + fft_val * 1.5)
+            val = (v * 0.5 + 0.5) * (0.4 + fft_val * 1.2)
             if val > 0.02:
                 hue = (la / sector * 0.5 + r * 0.5 + t * 0.03) % 1.0
                 rc, gc, bc = _rainbow_color(hue, t, speed=0, value=min(1, val))
@@ -1660,7 +1677,7 @@ def _render_exp_kal_fft_rings(frame, w, h, t, fft, td, bass, mid, treble):
             ring_dist = abs(r * 12 - round(r * 12))
             ring_line = max(0, 1.0 - ring_dist * 6.0)
             ang = 0.5 + 0.5 * math.cos(6 * la / sector * math.pi)
-            val = ring_line * ang * (0.15 + fft_val * 1.5)
+            val = ring_line * ang * (0.4 + fft_val * 1.2)
             if val > 0.02:
                 hue = (ring_idx * 0.1 + la / sector * 0.3 + t * 0.02) % 1.0
                 rc, gc, bc = _rainbow_color(hue, t, speed=0, value=min(1, val * 1.3))
@@ -1711,7 +1728,7 @@ def _render_exp_kal_fft_push(frame, w, h, t, fft, td, bass, mid, treble):
             local_push = bp * 0.3 + a_fft * 3.0
             fx, fy = r * math.cos(la), r * math.sin(la)
             v = math.sin(fx * 6.0 - local_push) * math.cos(fy * 6.0 + local_push * 0.5)
-            val = (v * 0.5 + 0.5) * (0.2 + a_fft * 1.2)
+            val = (v * 0.5 + 0.5) * (0.4 + a_fft * 1.0)
             if val > 0.02:
                 hue = (la / sector * 0.5 + r * 0.4 + t * 0.03) % 1.0
                 rc, gc, bc = _rainbow_color(hue, t, speed=0, value=min(1, val))
@@ -1732,7 +1749,7 @@ def _render_exp_kal_fft_thick(frame, w, h, t, fft, td, bass, mid, treble):
             si = int(theta / sector) if theta >= 0 else int(theta / sector) - 1
             la = theta - si * sector
             if si % 2 == 1: la = sector - la
-            r_fft = _fft_at(fft, r * 150)
+            r_fft = _fft_at_radius(fft, r)
             thickness = 0.05 + r_fft * 0.4
             fx, fy = r * math.cos(la), r * math.sin(la)
             v = math.sin(fx * 7.0 + bp * 0.3) * math.cos(fy * 7.0 - bp * 0.2)
@@ -1781,15 +1798,15 @@ def _render_exp_kal_fft_full(frame, w, h, t, fft, td, bass, mid, treble):
             si = int(theta / sector) if theta >= 0 else int(theta / sector) - 1
             la = theta - si * sector
             if si % 2 == 1: la = sector - la
-            r_fft = _fft_at(fft, r * 150)
-            a_fft = _fft_at(fft, (la / sector) * 60)
+            r_fft = _fft_at_radius(fft, r)
+            a_fft = _fft_at_norm(fft, la / sector)
             c_fft = _fft_at(fft, (x / max(w-1,1)) * 80)
             fx, fy = r * math.cos(la), r * math.sin(la)
             sf = 5.0 + c_fft * 6.0
             push = bp * 0.3 + a_fft * 2.0
             v = math.sin(fx * sf - push) * math.cos(fy * sf * 0.8 + push * 0.5)
             thickness = 0.08 + r_fft * 0.3
-            val = nodal_line(v, thickness) * (0.2 + (r_fft + a_fft + c_fft) / 3 * 1.3)
+            val = nodal_line(v, thickness) * (0.4 + (r_fft + a_fft + c_fft) / 3 * 1.0)
             if val > 0.02:
                 hue = (c_fft * 0.4 + la / sector * 0.3 + r * 0.2 + t * 0.02) % 1.0
                 rc, gc, bc = _rainbow_color(hue, t, speed=0, value=min(1, val * 1.2))
