@@ -887,7 +887,164 @@ def exp_kal_web(frame, w, h, t, col_fft):
                 frame[y, x] = [rc, gc, bc]
 
 
-# ─── NEW replacements for removed experiments ────────────────────────────────
+# ─── NEW: Patterns inspired by original app favorites ────────────────────────
+
+def exp_sand(frame, w, h, t, col_fft):
+    """Sand — Chladni nodal lines (where sand collects). FFT morphs pattern."""
+    mirror_fft = get_col_fft_mirror(w, offset=280)
+    for y in range(h):
+        ny = y / (h-1)
+        for x in range(w):
+            nx = x / (w-1)
+            fv = mirror_fft[x]
+            # FFT morphs the Chladni mode numbers
+            n = 3.0 + fv * 3.0
+            m = 4.0 + fv * 2.0
+            px, py = nx * math.pi, ny * math.pi
+            v = math.sin(n * px) * math.sin(m * py) - math.sin(m * px) * math.sin(n * py)
+            # Nodal lines (v≈0) are bright — where sand collects
+            closeness = max(0, 1.0 - abs(v) * 3.0)
+            val = closeness * (0.3 + fv * 1.2)
+            if val > 0.03:
+                hue = (nx * 0.5 + ny * 0.3 + t * 0.02) % 1.0
+                r, g, b = hsv(hue, 0.6, min(1.0, val * 1.3))
+                frame[y, x] = [r, g, b]
+
+
+def exp_color_cycle(frame, w, h, t, col_fft):
+    """Color Cycle — smooth color gradients that shift with FFT."""
+    mirror_fft = get_col_fft_mirror(w, offset=290)
+    for y in range(h):
+        ny = y / (h-1)
+        for x in range(w):
+            nx = x / (w-1)
+            fv = mirror_fft[x]
+            # Color tint pattern modulated by FFT
+            v = (math.sin(nx * 5 + t * 0.5) * math.sin(ny * 5 + t * 0.3) + 1) * 0.5
+            val = v * (0.3 + fv * 1.2)
+            if val > 0.03:
+                # Hue shifts with FFT — different frequencies = different colors
+                hue = (fv * 0.6 + nx * 0.3 + t * 0.03) % 1.0
+                r, g, b = hsv(hue, 0.85, min(1.0, val))
+                frame[y, x] = [r, g, b]
+
+
+def exp_scanner(frame, w, h, t, col_fft):
+    """Scanner — sweeping beam whose position and width = FFT."""
+    mirror_fft = get_col_fft_mirror(w, offset=300)
+    for x in range(w):
+        nx = x / (w-1)
+        fv = mirror_fft[x]
+        if fv < 0.02: continue
+        # Scan beam: bright vertical line that sweeps based on FFT position
+        # Each column's brightness = how close it is to the "scan point"
+        scan_pos = fv  # FFT value IS the scan position (0-1)
+        dist = abs(nx - scan_pos)
+        beam_val = max(0, 1.0 - dist * 5.0) * fv * 2.0
+        if beam_val > 0.02:
+            hue = (nx + t * 0.05) % 1.0
+            r, g, b = hsv(hue, 0.85, min(1.0, beam_val))
+            for y in range(h):
+                frame[y, x] = [r, g, b]
+
+
+def exp_bonfire(frame, w, h, t, col_fft):
+    """Bonfire — flames rising from bottom, height = FFT. Warm colors."""
+    mirror_fft = get_col_fft_mirror(w, offset=310)
+    for x in range(w):
+        fv = mirror_fft[x]
+        if fv < 0.02: continue
+        flame_h = fv * h * 0.9
+        for y in range(h):
+            base = h - 1 - y  # 0 at bottom, h-1 at top
+            if base < flame_h:
+                frac = base / max(1, flame_h)  # 0 at bottom, 1 at flame tip
+                # Warm fire colors: red at base → orange → yellow at tip
+                hue = frac * 0.12  # 0 (red) to 0.12 (yellow)
+                sat = 1.0 - frac * 0.3
+                val = (1.0 - frac * 0.3) * fv * 1.5
+                # Flicker
+                flicker = 0.8 + 0.2 * math.sin(x * 3.7 + t * 8 + y * 0.5)
+                val *= flicker
+                r, g, b = hsv(hue, sat, min(1.0, val))
+                frame[y, x] = [r, g, b]
+
+
+def exp_vortex(frame, w, h, t, col_fft):
+    """Vortex — spiral with rich multi-color, FFT drives arm brightness."""
+    aspect = w / max(h, 1)
+    mirror_fft = get_col_fft_mirror(w, offset=320)
+    for y in range(h):
+        ny = y / (h-1) - 0.5
+        for x in range(w):
+            nx = (x / (w-1) - 0.5) * aspect
+            r = math.sqrt(nx*nx + ny*ny)
+            theta = math.atan2(ny, nx)
+            fv = mirror_fft[x]
+            if fv < 0.02: continue
+            # Multiple spiral arms with different colors
+            val = 0
+            for arm in range(3):
+                spiral = math.sin(3 * theta + r * (3.0 + fv * 3.0) + arm * 2.1)
+                val += max(0, spiral) * 0.5
+            val = min(1.0, val * fv * 1.5)
+            if val > 0.03:
+                # Rich multi-color: hue varies with angle AND radius AND FFT
+                hue = (theta / 6.28 * 0.4 + r * 0.3 + fv * 0.3 + t * 0.02) % 1.0
+                rc, gc, bc = hsv(hue, 0.9, min(1.0, val))
+                frame[y, x] = [rc, gc, bc]
+
+
+def exp_falling(frame, w, h, t, col_fft):
+    """Falling — particles drop from top, trail behind them. FFT = drop density."""
+    mirror_fft = get_col_fft_mirror(w, offset=330)
+    for x in range(w):
+        fv = mirror_fft[x]
+        if fv < 0.03: continue
+        hue = (x / max(w-1, 1) * 0.7 + t * 0.03) % 1.0
+        r, g, b = hsv(hue, 0.85, 1.0)
+        # Multiple drops per column based on FFT energy
+        n_drops = max(1, int(fv * 4))
+        for d in range(n_drops):
+            # Drop position scrolls down over time
+            drop_y = ((t * (3 + d * 1.5) + x * 0.37 + d * 7.1) % 1.0)
+            py = int(drop_y * (h - 1))
+            # Trail above the drop (3-5 pixels)
+            trail_len = int(2 + fv * 4)
+            for dy in range(trail_len):
+                ty = py - dy
+                if 0 <= ty < h:
+                    fade = 1.0 - dy / trail_len
+                    intensity = fade * fv * 1.5
+                    frame[ty, x] = [max(frame[ty, x, 0], int(r * intensity)),
+                                    max(frame[ty, x, 1], int(g * intensity)),
+                                    max(frame[ty, x, 2], int(b * intensity))]
+
+
+def exp_prism(frame, w, h, t, col_fft):
+    """Prism — rainbow light splitting effect. FFT spreads the spectrum."""
+    mirror_fft = get_col_fft_mirror(w, offset=340)
+    center = h // 2
+    for x in range(w):
+        fv = mirror_fft[x]
+        if fv < 0.02: continue
+        nx = x / (w-1)
+        # Rainbow spread: more FFT = wider color separation
+        spread = int(fv * center * 0.8)
+        for dy in range(-spread, spread + 1):
+            y = center + dy
+            if 0 <= y < h:
+                # Map vertical position to hue (rainbow)
+                hue = (dy / max(1, spread) * 0.5 + 0.5 + nx * 0.3 + t * 0.03) % 1.0
+                dist = abs(dy) / max(1, spread)
+                val = (1.0 - dist * 0.5) * fv * 1.5
+                r, g, b = hsv(hue, 0.9, min(1.0, val))
+                frame[y, x] = [max(frame[y, x, 0], r),
+                               max(frame[y, x, 1], g),
+                               max(frame[y, x, 2], b)]
+
+
+# ─── Previous replacement experiments ────────────────────────────────────────
 
 def exp_horizon_dual(frame, w, h, t, col_fft):
     """Dual horizon — two flowing lines at 1/3 and 2/3 height, mirrored FFT."""
@@ -1054,13 +1211,18 @@ EXPERIMENTS = [
     ("P7 Aurora", exp_aurora),
     ("P8 Horizon", exp_horizon),
     ("P9 Plasma", exp_plasma_fft),
-    ("P10 Dual Horizon", exp_horizon_dual),
+    ("P10 Sand", exp_sand),
+    ("P11 Color Cycle", exp_color_cycle),
+    ("P12 Scanner", exp_scanner),
+    ("P13 Bonfire", exp_bonfire),
+    ("P14 Falling", exp_falling),
+    ("P15 Prism", exp_prism),
     # Cymatics / Horizon styles
     ("C1 Hex Grid", exp_hex_grid),
     ("C2 Wave Horizon", exp_horizon_wave),
     ("C3 Cym Breathing", exp_cym_spatial),
     ("C4 Multi Horizon", exp_horizon_multi),
-    ("C5 Pulse Horizon", exp_horizon_pulse),
+    ("C5 Vortex", exp_vortex),
     ("C6 Cym Rings", exp_cym_rings),
     ("C7 Cym Expanding", exp_cym_expanding),
     ("C8 Cym Dual", exp_cym_dual),
@@ -1074,9 +1236,7 @@ EXPERIMENTS = [
     ("K5 Kal Mirror", exp_kal_mirror),
     ("K6 Kal Crystal", exp_kal_crystal),
     ("K7 Circuit", exp_circuit),
-    ("K8 Galaxy", exp_galaxy),
     ("K9 Kal Dual", exp_kal_dual),
-    ("K10 Ripple", exp_ripple_fft),
 ]
 
 
