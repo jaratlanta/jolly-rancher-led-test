@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Animation Lab</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, monospace;
+            background: #0a0a0f;
+            color: #e0e0e8;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+        h1 { font-size: 0.9rem; color: #666; margin-bottom: 15px; letter-spacing: 2px; text-transform: uppercase; }
+        .panel-label { font-size: 0.6rem; color: #444; text-transform: uppercase; letter-spacing: 1px; margin: 8px 0 4px; }
+        canvas { display: block; border: 1px solid #222; border-radius: 4px; image-rendering: pixelated; }
+        #front-canvas { width: 800px; height: 267px; }
+        #side-canvas { width: 800px; height: 87px; }
+        .controls {
+            margin-top: 15px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        button {
+            padding: 8px 16px;
+            border: 1px solid #333;
+            border-radius: 6px;
+            background: #1a1a24;
+            color: #e0e0e8;
+            font-family: inherit;
+            font-size: 0.8rem;
+            cursor: pointer;
+        }
+        button:hover { border-color: #00ccff; color: #00ccff; }
+        .exp-name { font-size: 1rem; font-weight: 600; min-width: 200px; text-align: center; }
+        .exp-sub { font-size: 0.65rem; color: #666; text-align: center; }
+        .audio-btn { padding: 8px 20px; }
+        .audio-btn.active { background: #005577; border-color: #00ccff; color: #fff; }
+        .status { font-size: 0.6rem; color: #333; margin-top: 10px; }
+        .meter { display: flex; gap: 4px; align-items: flex-end; height: 30px; }
+        .meter-bar { width: 8px; background: #00ccff33; border-radius: 2px; transition: height 0.05s; }
+    </style>
+</head>
+<body>
+
+<h1>Animation Lab</h1>
+
+<div class="panel-label">Front Panel (72×24)</div>
+<canvas id="front-canvas" width="72" height="24"></canvas>
+
+<div class="panel-label">Side Panel (220×24) — Left & Right identical</div>
+<canvas id="side-canvas" width="220" height="24"></canvas>
+
+<div class="controls">
+    <button id="prev-btn">◄</button>
+    <div>
+        <div class="exp-name" id="exp-name">—</div>
+        <div class="exp-sub" id="exp-sub">0/0</div>
+    </div>
+    <button id="next-btn">►</button>
+    <button class="audio-btn" id="audio-btn">🎤 Audio Off</button>
+</div>
+
+<div class="meter" id="meter">
+    <div class="meter-bar" id="m-bass" style="height:2px; background:#ff4466;"></div>
+    <div class="meter-bar" id="m-mid" style="height:2px; background:#00ff88;"></div>
+    <div class="meter-bar" id="m-tre" style="height:2px; background:#00ccff;"></div>
+</div>
+
+<div class="status" id="status">Connecting...</div>
+
+<script>
+const frontCanvas = document.getElementById('front-canvas');
+const sideCanvas = document.getElementById('side-canvas');
+const frontCtx = frontCanvas.getContext('2d');
+const sideCtx = sideCanvas.getContext('2d');
+
+let ws = null;
+let audioCtx = null, analyser = null, stream = null, fftArray = null;
+let audioActive = false;
+let state = {};
+
+// ─── WebSocket ──────────────────────────────────────────────────────
+
+function connect() {
+    ws = new WebSocket(`ws://${location.host}/ws`);
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = () => document.getElementById('status').textContent = 'Connected';
+    ws.onclose = () => { document.getElementById('status').textContent = 'Reconnecting...'; setTimeout(connect, 2000); };
+    ws.onerror = () => ws.close();
+
+    ws.onmessage = (e) => {
+        if (e.data instanceof ArrayBuffer) {
+            renderFrame(new Uint8Array(e.data));
+        } else {
+            state = JSON.parse(e.data);
+            document.getElementById('exp-name').textContent = state.exp_name || '—';
+            document.getElementById('exp-sub').textContent = `${(state.exp_idx || 0) + 1}/${state.exp_count || 0}`;
+        }
+    };
+}
+
+function send(obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
+
+// ─── Render ─────────────────────────────────────────────────────────
+
+function renderFrame(data) {
+    const fw = state.front_w || 72, fh = state.front_h || 24;
+    const sw = state.side_w || 220, sh = state.side_h || 24;
+
+    // Front panel
+    const fImg = frontCtx.createImageData(fw, fh);
+    for (let i = 0; i < fw * fh; i++) {
+        fImg.data[i * 4] = data[i * 3];
+        fImg.data[i * 4 + 1] = data[i * 3 + 1];
+        fImg.data[i * 4 + 2] = data[i * 3 + 2];
+        fImg.data[i * 4 + 3] = 255;
+    }
+    frontCtx.putImageData(fImg, 0, 0);
+
+    // Side panel (offset by front size)
+    const sOff = fw * fh * 3;
+    const sImg = sideCtx.createImageData(sw, sh);
+    for (let i = 0; i < sw * sh; i++) {
+        sImg.data[i * 4] = data[sOff + i * 3];
+        sImg.data[i * 4 + 1] = data[sOff + i * 3 + 1];
+        sImg.data[i * 4 + 2] = data[sOff + i * 3 + 2];
+        sImg.data[i * 4 + 3] = 255;
+    }
+    sideCtx.putImageData(sImg, 0, 0);
+}
+
+// ─── Audio ──────────────────────────────────────────────────────────
+
+async function startAudio() {
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioCtx = new AudioContext();
+        const source = audioCtx.createMediaStreamSource(stream);
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 256;
+        source.connect(analyser);
+        fftArray = new Uint8Array(128);
+        audioActive = true;
+        document.getElementById('audio-btn').classList.add('active');
+        document.getElementById('audio-btn').textContent = '🎤 Audio On';
+        sendFFT();
+    } catch (err) {
+        alert('Mic access denied');
+    }
+}
+
+function stopAudio() {
+    audioActive = false;
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    if (audioCtx) { audioCtx.close(); audioCtx = null; }
+    document.getElementById('audio-btn').classList.remove('active');
+    document.getElementById('audio-btn').textContent = '🎤 Audio Off';
+}
+
+function sendFFT() {
+    if (!audioActive || !analyser) return;
+    analyser.getByteFrequencyData(fftArray);
+
+    // Send raw 128 bytes to server
+    if (ws && ws.readyState === 1) {
+        ws.send(fftArray.buffer);
+    }
+
+    // Update meters
+    let bass = 0, mid = 0, tre = 0;
+    for (let i = 1; i < 8; i++) bass += fftArray[i];
+    bass = (bass / 7) / 255;
+    for (let i = 10; i < 30; i++) mid += fftArray[i];
+    mid = (mid / 20) / 255;
+    for (let i = 35; i < 128; i++) tre += fftArray[i];
+    tre = (tre / 93) / 255;
+
+    document.getElementById('m-bass').style.height = (2 + bass * 28) + 'px';
+    document.getElementById('m-mid').style.height = (2 + mid * 28) + 'px';
+    document.getElementById('m-tre').style.height = (2 + tre * 28) + 'px';
+
+    requestAnimationFrame(sendFFT);
+}
+
+// ─── Controls ───────────────────────────────────────────────────────
+
+document.getElementById('prev-btn').addEventListener('click', () => send({ cmd: 'prev_exp' }));
+document.getElementById('next-btn').addEventListener('click', () => send({ cmd: 'next_exp' }));
+document.getElementById('audio-btn').addEventListener('click', () => {
+    if (audioActive) stopAudio(); else startAudio();
+});
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowLeft') send({ cmd: 'prev_exp' });
+    if (e.key === 'ArrowRight') send({ cmd: 'next_exp' });
+    if (e.key === ' ') { e.preventDefault(); if (audioActive) stopAudio(); else startAudio(); }
+});
+
+connect();
+</script>
+</body>
+</html>
