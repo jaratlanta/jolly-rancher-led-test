@@ -94,10 +94,14 @@ let audioCtx = null, analyser = null, stream = null, fftArray = null;
 let audioActive = false;
 let state = {};
 
-// LED dot rendering — responsive to browser width
+// LED dot rendering — responsive, both panels SAME height
 function calcLedParams(cols, rows) {
-    const maxWidth = document.body.clientWidth - 60; // page padding + panel padding
-    const spacing = Math.min(Math.floor(maxWidth / cols), Math.floor(300 / rows));
+    const maxWidth = document.body.clientWidth - 60;
+    // Side panel (widest) determines the spacing, front uses same spacing
+    const sideW = state.side_w || 220;
+    const sideSpacing = Math.floor(maxWidth / sideW);
+    // Both panels use side spacing so rows are identical height
+    const spacing = sideSpacing;
     const radius = Math.max(1, spacing * 0.36);
     const glow = Math.max(0.5, spacing * 0.29);
     const padding = 6;
