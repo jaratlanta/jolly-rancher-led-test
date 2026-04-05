@@ -38,6 +38,10 @@ fft_lock = threading.Lock()
 # Current experiment index
 current_exp = 0
 
+# Whether browser is sending real audio
+audio_active = False
+audio_last_time = 0
+
 # Smooth state (fast attack, slow decay — like Frequency Bars)
 smooth_state = np.zeros(512, dtype=np.float32)
 
@@ -852,7 +856,7 @@ EXPERIMENTS = [
 running = True
 
 def render_loop():
-    global running, ws_clients
+    global running, ws_clients, audio_active, audio_last_time
     dt = 1.0 / FPS
     t = 0
 
@@ -860,11 +864,13 @@ def render_loop():
         t0 = time.monotonic()
         t += dt
 
-        with fft_lock:
-            has_audio = np.max(fft_data) > 5  # is real audio coming in?
+        # Auto-deactivate audio if no FFT data for 2 seconds
+        if audio_active and time.monotonic() - audio_last_time > 2.0:
+            audio_active = False
 
-        # If no audio, generate simulated FFT for DEFAULT mode
-        if not has_audio:
+        # DEFAULT mode: simulated FFT for continuous animation
+        if not audio_active:
+            # DEFAULT mode: generate animated simulated FFT
             for i in range(128):
                 fft_data[i] = 80 + 60 * math.sin(i * 0.3 + t * 2.0) * math.sin(t * 0.5 + i * 0.1)
                 fft_data[i] = max(0, fft_data[i])
@@ -942,8 +948,11 @@ async def ws_endpoint(ws: WebSocket):
                 # FFT data from browser
                 data = raw["bytes"]
                 if len(data) == 128:
+                    global audio_active, audio_last_time
                     with fft_lock:
                         fft_data[:] = np.frombuffer(data, dtype=np.uint8).astype(np.float32)
+                    audio_active = True
+                    audio_last_time = time.monotonic()
                 continue
 
             msg = raw.get("text", "")
