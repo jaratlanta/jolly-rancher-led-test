@@ -16,13 +16,19 @@
             align-items: center;
             padding: 20px;
         }
-        h1 { font-size: 0.9rem; color: #666; margin-bottom: 15px; letter-spacing: 2px; text-transform: uppercase; }
+        h1 { font-size: 0.9rem; color: #666; margin-bottom: 12px; letter-spacing: 2px; text-transform: uppercase; }
         .panel-label { font-size: 0.6rem; color: #444; text-transform: uppercase; letter-spacing: 1px; margin: 8px 0 4px; }
-        canvas { display: block; border: 1px solid #222; border-radius: 4px; image-rendering: pixelated; }
-        #front-canvas { width: 800px; height: 267px; }
-        #side-canvas { width: 800px; height: 87px; }
+        .panel-wrap {
+            background: #111118;
+            border: 1px solid #222;
+            border-radius: 8px;
+            padding: 10px;
+            display: flex;
+            justify-content: center;
+        }
+        canvas { display: block; border-radius: 3px; }
         .controls {
-            margin-top: 15px;
+            margin-top: 12px;
             display: flex;
             align-items: center;
             gap: 15px;
@@ -42,8 +48,8 @@
         .exp-sub { font-size: 0.65rem; color: #666; text-align: center; }
         .audio-btn { padding: 8px 20px; }
         .audio-btn.active { background: #005577; border-color: #00ccff; color: #fff; }
-        .status { font-size: 0.6rem; color: #333; margin-top: 10px; }
-        .meter { display: flex; gap: 4px; align-items: flex-end; height: 30px; }
+        .status { font-size: 0.6rem; color: #333; margin-top: 8px; }
+        .meter { display: flex; gap: 4px; align-items: flex-end; height: 30px; margin-top: 5px; }
         .meter-bar { width: 8px; background: #00ccff33; border-radius: 2px; transition: height 0.05s; }
     </style>
 </head>
@@ -52,10 +58,10 @@
 <h1>Animation Lab</h1>
 
 <div class="panel-label">Front Panel (72×24)</div>
-<canvas id="front-canvas" width="72" height="24"></canvas>
+<div class="panel-wrap"><canvas id="front-canvas"></canvas></div>
 
-<div class="panel-label">Side Panel (220×24) — Left & Right identical</div>
-<canvas id="side-canvas" width="220" height="24"></canvas>
+<div class="panel-label">Side Panel (220×24)</div>
+<div class="panel-wrap"><canvas id="side-canvas"></canvas></div>
 
 <div class="controls">
     <button id="prev-btn">◄</button>
@@ -86,6 +92,66 @@ let audioCtx = null, analyser = null, stream = null, fftArray = null;
 let audioActive = false;
 let state = {};
 
+// LED dot rendering params — both panels same row height
+const TARGET_PANEL_HEIGHT = 200; // px — both panels render to this height
+
+function calcLedParams(cols, rows) {
+    const spacing = Math.floor(TARGET_PANEL_HEIGHT / rows);
+    const radius = Math.max(1.5, spacing * 0.36);
+    const glow = Math.max(1, spacing * 0.29);
+    const padding = 8;
+    return { spacing, radius, glow, padding };
+}
+
+function renderLedPanel(ctx, canvas, data, dataOffset, cols, rows) {
+    const params = calcLedParams(cols, rows);
+    const { spacing, radius, glow, padding } = params;
+
+    canvas.width = cols * spacing + padding * 2;
+    canvas.height = rows * spacing + padding * 2;
+
+    ctx.fillStyle = '#050508';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+            const idx = dataOffset + (y * cols + x) * 3;
+            const r = data[idx] || 0;
+            const g = data[idx + 1] || 0;
+            const b = data[idx + 2] || 0;
+
+            const cx = padding + x * spacing + spacing / 2;
+            const cy = padding + y * spacing + spacing / 2;
+
+            const brightness = (r + g + b) / 3;
+
+            // Glow halo
+            if (brightness > 5 && glow > 0.5) {
+                const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius + glow * 1.5);
+                grad.addColorStop(0, `rgba(${r}, ${g}, ${b}, 0.7)`);
+                grad.addColorStop(0.5, `rgba(${r}, ${g}, ${b}, 0.3)`);
+                grad.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+                ctx.fillStyle = grad;
+                ctx.fillRect(cx - radius - glow * 1.5, cy - radius - glow * 1.5,
+                    (radius + glow * 1.5) * 2, (radius + glow * 1.5) * 2);
+            }
+
+            // LED dot
+            ctx.beginPath();
+            ctx.arc(cx, cy, radius * 0.75, 0, Math.PI * 2);
+            ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+            ctx.fill();
+
+            // Dim dot outline when dark
+            if (brightness < 10) {
+                ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+                ctx.lineWidth = 0.5;
+                ctx.stroke();
+            }
+        }
+    }
+}
+
 // ─── WebSocket ──────────────────────────────────────────────────────
 
 function connect() {
@@ -98,7 +164,13 @@ function connect() {
 
     ws.onmessage = (e) => {
         if (e.data instanceof ArrayBuffer) {
-            renderFrame(new Uint8Array(e.data));
+            const data = new Uint8Array(e.data);
+            const fw = state.front_w || 72, fh = state.front_h || 24;
+            const sw = state.side_w || 220, sh = state.side_h || 24;
+            const frontSize = fw * fh * 3;
+
+            renderLedPanel(frontCtx, frontCanvas, data, 0, fw, fh);
+            renderLedPanel(sideCtx, sideCanvas, data, frontSize, sw, sh);
         } else {
             state = JSON.parse(e.data);
             document.getElementById('exp-name').textContent = state.exp_name || '—';
@@ -108,34 +180,6 @@ function connect() {
 }
 
 function send(obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
-
-// ─── Render ─────────────────────────────────────────────────────────
-
-function renderFrame(data) {
-    const fw = state.front_w || 72, fh = state.front_h || 24;
-    const sw = state.side_w || 220, sh = state.side_h || 24;
-
-    // Front panel
-    const fImg = frontCtx.createImageData(fw, fh);
-    for (let i = 0; i < fw * fh; i++) {
-        fImg.data[i * 4] = data[i * 3];
-        fImg.data[i * 4 + 1] = data[i * 3 + 1];
-        fImg.data[i * 4 + 2] = data[i * 3 + 2];
-        fImg.data[i * 4 + 3] = 255;
-    }
-    frontCtx.putImageData(fImg, 0, 0);
-
-    // Side panel (offset by front size)
-    const sOff = fw * fh * 3;
-    const sImg = sideCtx.createImageData(sw, sh);
-    for (let i = 0; i < sw * sh; i++) {
-        sImg.data[i * 4] = data[sOff + i * 3];
-        sImg.data[i * 4 + 1] = data[sOff + i * 3 + 1];
-        sImg.data[i * 4 + 2] = data[sOff + i * 3 + 2];
-        sImg.data[i * 4 + 3] = 255;
-    }
-    sideCtx.putImageData(sImg, 0, 0);
-}
 
 // ─── Audio ──────────────────────────────────────────────────────────
 
@@ -168,13 +212,8 @@ function stopAudio() {
 function sendFFT() {
     if (!audioActive || !analyser) return;
     analyser.getByteFrequencyData(fftArray);
+    if (ws && ws.readyState === 1) ws.send(fftArray.buffer);
 
-    // Send raw 128 bytes to server
-    if (ws && ws.readyState === 1) {
-        ws.send(fftArray.buffer);
-    }
-
-    // Update meters
     let bass = 0, mid = 0, tre = 0;
     for (let i = 1; i < 8; i++) bass += fftArray[i];
     bass = (bass / 7) / 255;
