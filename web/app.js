@@ -1593,23 +1593,10 @@ document.getElementById('bpm-full-btn').addEventListener('click', () => {
 
 document.getElementById('diffuser-slider').addEventListener('input', (e) => {
     const val = parseInt(e.target.value) / 100;  // 0 to 1
-    // Simulate milky white diffuser:
-    // - blur: LEDs bleed into neighbors
-    // - brightness boost: diffuser scatters light, making everything brighter
-    // - desaturation: colors wash toward pastel/white
-    // - contrast reduction: dark areas get lifted by neighbor bleed
-    const blurPx = val * 14;
-    const brightness = 1.0 + val * 1.5;      // brighter (up to 2.5x)
-    const saturation = 1.0 - val * 0.7;      // desaturate toward pastel (down to 0.3)
-    const contrast = 1.0 - val * 0.4;        // reduce contrast (down to 0.6)
-
+    const blurPx = val * 12;
     const canvases = document.querySelectorAll('canvas');
     canvases.forEach(c => {
-        if (val > 0.01) {
-            c.style.filter = `blur(${blurPx}px) brightness(${brightness}) saturate(${saturation}) contrast(${contrast})`;
-        } else {
-            c.style.filter = 'none';
-        }
+        c.style.filter = blurPx > 0.1 ? `blur(${blurPx}px)` : 'none';
     });
 });
 
