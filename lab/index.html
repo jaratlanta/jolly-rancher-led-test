@@ -44,7 +44,9 @@
             cursor: pointer;
         }
         button:hover { border-color: #00ccff; color: #00ccff; }
-        .exp-name { font-size: 1rem; font-weight: 600; min-width: 200px; text-align: center; }
+        .exp-name { font-size: 1rem; font-weight: 600; min-width: 200px; text-align: center; cursor: pointer; }
+        .exp-name:hover { color: #00ccff; }
+        .copied { color: #00ff88 !important; }
         .exp-sub { font-size: 0.65rem; color: #666; text-align: center; }
         .audio-btn { padding: 8px 20px; }
         .audio-btn.active { background: #005577; border-color: #00ccff; color: #fff; }
@@ -230,6 +232,16 @@ function sendFFT() {
 
 // ─── Controls ───────────────────────────────────────────────────────
 
+document.getElementById('exp-name').addEventListener('click', () => {
+    const name = document.getElementById('exp-name').textContent;
+    navigator.clipboard.writeText(name);
+    document.getElementById('exp-name').classList.add('copied');
+    document.getElementById('exp-name').textContent = 'Copied!';
+    setTimeout(() => {
+        document.getElementById('exp-name').classList.remove('copied');
+        document.getElementById('exp-name').textContent = name;
+    }, 800);
+});
 document.getElementById('prev-btn').addEventListener('click', () => send({ cmd: 'prev_exp' }));
 document.getElementById('next-btn').addEventListener('click', () => send({ cmd: 'next_exp' }));
 document.getElementById('audio-btn').addEventListener('click', () => {
