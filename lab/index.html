@@ -92,14 +92,13 @@ let audioCtx = null, analyser = null, stream = null, fftArray = null;
 let audioActive = false;
 let state = {};
 
-// LED dot rendering params — both panels same row height
-const TARGET_PANEL_HEIGHT = 200; // px — both panels render to this height
-
+// LED dot rendering — responsive to browser width
 function calcLedParams(cols, rows) {
-    const spacing = Math.floor(TARGET_PANEL_HEIGHT / rows);
-    const radius = Math.max(1.5, spacing * 0.36);
-    const glow = Math.max(1, spacing * 0.29);
-    const padding = 8;
+    const maxWidth = document.body.clientWidth - 60; // page padding + panel padding
+    const spacing = Math.min(Math.floor(maxWidth / cols), Math.floor(300 / rows));
+    const radius = Math.max(1, spacing * 0.36);
+    const glow = Math.max(0.5, spacing * 0.29);
+    const padding = 6;
     return { spacing, radius, glow, padding };
 }
 
