@@ -1606,7 +1606,6 @@ initWebcamElements();
 loadModels();
 loadDiagnostics();
 loadFX();
-loadAudioModes();
 connect();
 
 // Auto-start in Visualizer + Audio mode after connection
