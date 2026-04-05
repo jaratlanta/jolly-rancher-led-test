@@ -1024,15 +1024,27 @@ def _vis_pixel(frame, y, x, hue, val, sat=0.8):
         frame[y, x, 2] = min(255, max(frame[y, x, 2], pb))
 
 
-def _vis_render(frame, w, h, t, func, bass=0, mid=0, treble=0):
+def _vis_render(frame, w, h, t, func, bass=0, mid=0, treble=0, fft=None):
     """Render a (nx, ny, t) -> (r,g,b) function into a frame with square aspect.
 
-    Uses beat_push for smooth animation that syncs with BPM (default or audio).
+    Uses beat_push for animation timing. FFT data modulates brightness per-column
+    so the pattern visibly responds to each frequency in the music.
     """
     aspect = w / max(h, 1)
 
-    # Use beat_push as the primary time driver — syncs with BPM
-    effective_t = _current_beat_push * 0.5 + t * 0.05  # beat-driven + slow drift
+    # Beat-driven time for animation
+    effective_t = _current_beat_push * 0.5 + t * 0.05
+
+    # Pre-compute per-column FFT energy for audio reactivity
+    col_energy = None
+    if fft is not None:
+        col_energy = np.zeros(w, dtype=np.float32)
+        for x in range(w):
+            bi = min(127, int((x / max(w - 1, 1)) * 100))
+            col_energy[x] = fft[bi] / 255.0
+            for o in [-1, 1]:
+                nb = min(127, max(0, bi + o))
+                col_energy[x] = max(col_energy[x], fft[nb] / 255.0 * 0.5)
 
     for y_px in range(h):
         ny = y_px / max(h - 1, 1) - 0.5
@@ -1040,9 +1052,13 @@ def _vis_render(frame, w, h, t, func, bass=0, mid=0, treble=0):
             nx = (x_px / max(w - 1, 1) - 0.5) * aspect
             r, g, b = func(nx, ny, effective_t)
             if r > 2 or g > 2 or b > 2:
-                frame[y_px, x_px, 0] = min(255, max(frame[y_px, x_px, 0], int(r * _BRIGHTNESS_BOOST)))
-                frame[y_px, x_px, 1] = min(255, max(frame[y_px, x_px, 1], int(g * _BRIGHTNESS_BOOST)))
-                frame[y_px, x_px, 2] = min(255, max(frame[y_px, x_px, 2], int(b * _BRIGHTNESS_BOOST)))
+                # FFT modulation: per-column brightness scales with frequency energy
+                boost = _BRIGHTNESS_BOOST
+                if col_energy is not None:
+                    boost *= (0.3 + col_energy[x_px] * 2.0)  # dim in silence, bright with sound
+                frame[y_px, x_px, 0] = min(255, max(frame[y_px, x_px, 0], int(r * boost)))
+                frame[y_px, x_px, 1] = min(255, max(frame[y_px, x_px, 1], int(g * boost)))
+                frame[y_px, x_px, 2] = min(255, max(frame[y_px, x_px, 2], int(b * boost)))
 
 
 # ─── Kaleidoscopes (kept from approved round) ────────────────────────────────
@@ -1112,16 +1128,16 @@ def _kal_mandala_fn(nx, ny, t):
 
 
 def _render_kal_crystal(frame, w, h, t, fft, td, bass, mid, treble):
-    _vis_render(frame, w, h, t, _kal_crystal_fn, bass, mid, treble)
+    _vis_render(frame, w, h, t, _kal_crystal_fn, bass, mid, treble, fft)
 
 def _render_kal_pulse(frame, w, h, t, fft, td, bass, mid, treble):
-    _vis_render(frame, w, h, t, _kal_pulse_fn, bass, mid, treble)
+    _vis_render(frame, w, h, t, _kal_pulse_fn, bass, mid, treble, fft)
 
 def _render_kal_star(frame, w, h, t, fft, td, bass, mid, treble):
-    _vis_render(frame, w, h, t, _kal_star_fn, bass, mid, treble)
+    _vis_render(frame, w, h, t, _kal_star_fn, bass, mid, treble, fft)
 
 def _render_kal_mandala(frame, w, h, t, fft, td, bass, mid, treble):
-    _vis_render(frame, w, h, t, _kal_mandala_fn, bass, mid, treble)
+    _vis_render(frame, w, h, t, _kal_mandala_fn, bass, mid, treble, fft)
 
 
 # ─── Cymatics (thin bright lines on dark, geometric patterns) ────────────────
@@ -1178,14 +1194,27 @@ def _cym_flower_fn(nx, ny, t):
 
 
 def _render_cym_circles(frame, w, h, t, fft, td, bass, mid, treble):
-    _vis_render(frame, w, h, t, _cym_circles_fn, bass, mid, treble)
+    _vis_render(frame, w, h, t, _cym_circles_fn, bass, mid, treble, fft)
 
 def _render_cym_diamonds(frame, w, h, t, fft, td, bass, mid, treble):
-    _vis_render(frame, w, h, t, _cym_diamonds_fn, bass, mid, treble)
+    _vis_render(frame, w, h, t, _cym_diamonds_fn, bass, mid, treble, fft)
 
-def _cym_grid_core(frame, w, h, t, bass, mid, treble, radial_offset):
-    """Shared core for Cym Grid Pulse and Radiate. Renders holographic cymatics."""
+def _cym_grid_core(frame, w, h, t, bass, mid, treble, radial_offset, fft=None):
+    """Shared core for Cym Grid Pulse and Radiate. Renders holographic cymatics.
+    FFT modulates brightness per-column for direct audio reactivity."""
     aspect = w / max(h, 1)
+
+    # Pre-compute per-column FFT energy
+    col_energy = None
+    if fft is not None:
+        col_energy = np.zeros(w, dtype=np.float32)
+        for x in range(w):
+            bi = min(127, int((x / max(w - 1, 1)) * 100))
+            col_energy[x] = fft[bi] / 255.0
+            for o in [-1, 1]:
+                nb = min(127, max(0, bi + o))
+                col_energy[x] = max(col_energy[x], fft[nb] / 255.0 * 0.5)
+
     for y_px in range(h):
         ny = y_px / max(h - 1, 1) - 0.5
         for x_px in range(w):
@@ -1205,13 +1234,18 @@ def _cym_grid_core(frame, w, h, t, bass, mid, treble, radial_offset):
             val = max(_nodal_line(p1, 0.22), _nodal_line(p2, 0.18) * secondary_mix)
             val *= (0.5 + bass * 1.2)
 
+            # FFT per-column brightness modulation
+            boost = _BRIGHTNESS_BOOST
+            if col_energy is not None:
+                boost *= (0.3 + col_energy[x_px] * 2.0)
+
             if val > 0.02:
                 hue = (theta / (2.0 * math.pi) * 0.6 + r * 0.8 + t * 0.02) % 1.0
                 sat = min(1.0, 0.75 + 0.15 * math.sin(r * 5.0 + theta * 2.0))
                 rc, gc, bc = colorsys.hsv_to_rgb(hue % 1.0, sat, min(1.0, val * 1.3))
-                pr = min(255, int(rc * 255 * _BRIGHTNESS_BOOST))
-                pg = min(255, int(gc * 255 * _BRIGHTNESS_BOOST))
-                pb = min(255, int(bc * 255 * _BRIGHTNESS_BOOST))
+                pr = min(255, int(rc * 255 * boost))
+                pg = min(255, int(gc * 255 * boost))
+                pb = min(255, int(bc * 255 * boost))
                 frame[y_px, x_px, 0] = max(frame[y_px, x_px, 0], pr)
                 frame[y_px, x_px, 1] = max(frame[y_px, x_px, 1], pg)
                 frame[y_px, x_px, 2] = max(frame[y_px, x_px, 2], pb)
@@ -1219,15 +1253,15 @@ def _cym_grid_core(frame, w, h, t, bass, mid, treble, radial_offset):
 
 def _render_cym_grid_radiate(frame, w, h, t, fft, td, bass, mid, treble):
     """Cym Grid Radiate — rings expand outward perpetually. Tested via GIF harness."""
-    _cym_grid_core(frame, w, h, t, bass, mid, treble, radial_offset=_current_beat_push * 1.5)
+    _cym_grid_core(frame, w, h, t, bass, mid, treble, _current_beat_push * 1.5, fft)
 
 
 def _render_cym_grid_pulse(frame, w, h, t, fft, td, bass, mid, treble):
     """Cym Grid Pulse — shape throbs/pulses with each beat."""
-    _cym_grid_core(frame, w, h, t, bass, mid, treble, radial_offset=_current_beat_push * 1.2)
+    _cym_grid_core(frame, w, h, t, bass, mid, treble, _current_beat_push * 1.2, fft)
 
 def _render_cym_flower(frame, w, h, t, fft, td, bass, mid, treble):
-    _vis_render(frame, w, h, t, _cym_flower_fn, bass, mid, treble)
+    _vis_render(frame, w, h, t, _cym_flower_fn, bass, mid, treble, fft)
 
 
 # ─── Waveforms (bold flowing curves, low complexity for 24px) ────────────────
@@ -1285,16 +1319,16 @@ def _wf_pulse_fn(nx, ny, t):
 
 
 def _render_wf_multi_sine(frame, w, h, t, fft, td, bass, mid, treble):
-    _vis_render(frame, w, h, t, _wf_multi_sine_fn, bass, mid, treble)
+    _vis_render(frame, w, h, t, _wf_multi_sine_fn, bass, mid, treble, fft)
 
 def _render_wf_ocean(frame, w, h, t, fft, td, bass, mid, treble):
-    _vis_render(frame, w, h, t, _wf_ocean_fn, bass, mid, treble)
+    _vis_render(frame, w, h, t, _wf_ocean_fn, bass, mid, treble, fft)
 
 def _render_wf_interference(frame, w, h, t, fft, td, bass, mid, treble):
-    _vis_render(frame, w, h, t, _wf_interference_fn, bass, mid, treble)
+    _vis_render(frame, w, h, t, _wf_interference_fn, bass, mid, treble, fft)
 
 def _render_wf_pulse(frame, w, h, t, fft, td, bass, mid, treble):
-    _vis_render(frame, w, h, t, _wf_pulse_fn, bass, mid, treble)
+    _vis_render(frame, w, h, t, _wf_pulse_fn, bass, mid, treble, fft)
 
 
 # ─── Keep old cymatics/waveform renders below for backwards compat ───────────

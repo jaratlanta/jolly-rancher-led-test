@@ -754,7 +754,7 @@ class FrameEngine:
             # 50% brightness = 2.0x multiplier (optimal viewing)
             # 100% brightness = 4.0x multiplier (extremely bright)
             # This makes the UI preview much brighter at high settings.
-            brightness_mult = (self.brightness / 255.0) * 6.0  # 0→0, 128→3.0, 255→6.0
+            brightness_mult = (self.brightness / 255.0) * 3.0  # 0→0, 128→1.5, 255→3.0
             if abs(brightness_mult - 1.0) > 0.01:
                 frame_f = frame_rgb.astype(np.float32) * brightness_mult
                 frame_rgb = np.clip(frame_f, 0, 255).astype(np.uint8)
