@@ -1348,11 +1348,12 @@ def _render_wf_pulse(frame, w, h, t, fft, td, bass, mid, treble):
 # ═════════════════════════════════════════════════════════════════════════════
 
 def _fft_at(fft, bin_idx):
-    """Safe FFT bin lookup, returns 0-1."""
+    """Safe FFT bin lookup, returns 0-1. Noise floor applied."""
     if fft is None:
         return 0.3  # default for non-audio mode
     bi = max(0, min(127, int(bin_idx)))
-    return fft[bi] / 255.0
+    val = fft[bi] / 255.0
+    return val if val > 0.05 else 0.0  # noise floor
 
 
 def _fft_at_norm(fft, norm_val):
@@ -1360,7 +1361,8 @@ def _fft_at_norm(fft, norm_val):
     if fft is None:
         return 0.3
     bi = max(0, min(127, int(norm_val * 127)))
-    return fft[bi] / 255.0
+    val = fft[bi] / 255.0
+    return val if val > 0.05 else 0.0
 
 
 def _fft_at_radius(fft, r, max_r=5.0):
@@ -1369,7 +1371,8 @@ def _fft_at_radius(fft, r, max_r=5.0):
         return 0.3
     norm = min(1.0, r / max_r)
     bi = max(0, min(127, int(norm * 127)))
-    return fft[bi] / 255.0
+    val = fft[bi] / 255.0
+    return val if val > 0.05 else 0.0
 
 
 def _render_exp_cym_radial_fft(frame, w, h, t, fft, td, bass, mid, treble):

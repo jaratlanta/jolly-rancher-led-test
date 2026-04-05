@@ -301,9 +301,10 @@ class FrameEngine:
         if self.waveform_audio and self.audio.enabled:
             fft = self.audio.fft_data
             td = self.audio.td_data
-            bass = self.audio.bass_smooth
-            mid = self.audio.mid_smooth
-            treble = self.audio.treble_smooth
+            # Noise floor: values below threshold = true zero (no motion)
+            bass = self.audio.bass_smooth if self.audio.bass_smooth > 0.03 else 0.0
+            mid = self.audio.mid_smooth if self.audio.mid_smooth > 0.03 else 0.0
+            treble = self.audio.treble_smooth if self.audio.treble_smooth > 0.03 else 0.0
             beat_push = self.audio.beat_push
             # In AUDIO mode, t should NOT add any independent motion
             t = 0  # freeze clock — only audio drives animation
