@@ -887,9 +887,8 @@ def render_loop():
         except Exception as e:
             pass
 
-        # Pack into one message: front + side stacked vertically
-        combined = np.vstack([front, side])
-        frame_bytes = combined.tobytes()
+        # Pack into one message: front bytes + side bytes concatenated
+        frame_bytes = front.tobytes() + side.tobytes()
 
         # Send state + frame
         state = json.dumps({
