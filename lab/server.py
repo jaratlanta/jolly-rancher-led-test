@@ -349,23 +349,26 @@ def exp_mirror_spectrum(frame, w, h, t, col_fft):
 
 
 def exp_pulse_rings(frame, w, h, t, col_fft):
-    """P6. Concentric pulse rings — FFT drives ring brightness at each radius."""
+    """P6. Distorted ripple rings — FFT warps ring shape, creates cool interference."""
     aspect = w / max(h, 1)
     for y in range(h):
         ny = y / (h-1) - 0.5
         for x in range(w):
             nx = (x / (w-1) - 0.5) * aspect
             r = math.sqrt(nx*nx + ny*ny)
-            # Map radius to FFT (centered: r=0→bass, r=max→treble)
+            theta = math.atan2(ny, nx)
             r_norm = min(1.0, r / 5.0)
             fv = smooth(300 + int(r_norm * 50), get_fft(r_norm))
-            if fv < 0.03: continue
-            # Ring lines
-            ring = abs(math.sin(r * 5.0))
-            val = max(0, 1.0 - ring * 3.0) * fv * 2.0
+            if fv < 0.02: continue
+            # Distorted radius — FFT warps the rings into non-circular shapes
+            col_fv = smooth(350 + (x % 50), get_fft(x / max(w-1, 1)))
+            distorted_r = r + col_fv * 0.5 * math.sin(theta * 4 + r * 2)
+            # Multiple ring frequencies for interference pattern
+            ring1 = math.sin(distorted_r * 4.0)
+            ring2 = math.sin(distorted_r * 6.0 + theta * 2) * 0.5
+            val = max(0, ring1 + ring2) * fv * 1.3
             if val > 0.03:
-                theta = math.atan2(ny, nx)
-                hue = (r_norm * 0.6 + (theta + 3.14) / 6.28 * 0.3 + t * 0.02) % 1.0
+                hue = (r_norm * 0.5 + (theta + 3.14) / 6.28 * 0.4 + t * 0.02) % 1.0
                 rc, gc, bc = hsv(hue, 0.85, min(1.0, val * 1.3))
                 frame[y, x] = [rc, gc, bc]
 
@@ -483,7 +486,7 @@ def exp_cym_spatial(frame, w, h, t, col_fft):
             fv = mirror_fft[x]
             sf = 3.0 + fv * 5.0
             p = math.cos(r * sf) * (0.6 + 0.4 * math.cos(6 * theta))
-            val = nodal(p, 0.35 + fv * 0.2) * (0.3 + fv * 1.0)  # THICK lines
+            val = nodal(p, 0.45 + fv * 0.25) * (0.3 + fv * 1.0)  # VERY thick lines
             if val > 0.03:
                 hue = ((theta + 3.14) / 6.28 * 0.6 + r * 0.5 + t * 0.02) % 1.0
                 rc, gc, bc = hsv(hue, 0.8, min(1.0, val * 1.3))
@@ -491,20 +494,22 @@ def exp_cym_spatial(frame, w, h, t, col_fft):
 
 
 def exp_horizon_multi(frame, w, h, t, col_fft):
-    """C4. Multi-horizon — 4 always-visible flowing lines."""
+    """C4. Multi-horizon — 4 always-visible flowing lines. Never disappear."""
     mirror_fft = get_col_fft_mirror(w, offset=390)
     heights = [0.2, 0.4, 0.6, 0.8]
     for x in range(w):
-        fv = max(mirror_fft[x], 0.08)  # always visible
+        fv = max(mirror_fft[x], 0.12)  # strong minimum visibility
         for i, base_h in enumerate(heights):
             hue = (x / max(w-1, 1) * 0.6 + i * 0.15 + t * 0.03) % 1.0
             r, g, b = hsv(hue, 0.85, 1.0)
-            line_y = int(base_h * h + fv * 3 * math.sin(x * 0.04 + i * 1.5 + t * 0.5))
-            line_y = max(1, min(h-2, line_y))
+            # Gentle wave — small amplitude so lines stay visible
+            wave = fv * 2.0 * math.sin(x * 0.03 + i * 1.5 + t * 0.3)
+            line_y = int(base_h * h + wave)
+            line_y = max(2, min(h-3, line_y))
             glow_r = int(3 + fv * 3)
             for y in range(max(0, line_y - glow_r), min(h, line_y + glow_r + 1)):
                 dist = abs(y - line_y)
-                glow = (1.0 - dist / glow_r) * fv * 1.3
+                glow = (1.0 - dist / glow_r) * min(1.0, fv * 1.3)
                 pr, pg, pb = int(r * glow), int(g * glow), int(b * glow)
                 frame[y, x] = [max(frame[y, x, 0], pr), max(frame[y, x, 1], pg), max(frame[y, x, 2], pb)]
 
@@ -550,8 +555,8 @@ def exp_cym_expanding(frame, w, h, t, col_fft):
     aspect = w / max(h, 1)
     overall = sum(col_fft) / max(len(col_fft), 1)
     vis_radius = overall * 8.0 + 0.5
-    # Rotation driven by accumulated energy
-    rotation = smooth(499, overall, attack=0.3, decay=0.97) * 2.0  # very smooth
+    # Ultra-smooth rotation using high decay smooth
+    rotation = smooth(499, overall, attack=0.1, decay=0.995) * 3.0
     for y in range(h):
         ny = y / (h-1) - 0.5
         for x in range(w):
@@ -559,9 +564,10 @@ def exp_cym_expanding(frame, w, h, t, col_fft):
             r = math.sqrt(nx*nx + ny*ny)
             theta = math.atan2(ny, nx)
             if r > vis_radius: continue
-            # Twirl: rotation increases with radius (spiral effect)
-            twisted = theta + rotation + r * overall * 2.0
-            n_ang = int(4 + overall * 6)  # shape morphs with energy
+            # Smooth twist: eases one direction then the other
+            twist_phase = math.sin(rotation * 0.5) * 0.5
+            twisted = theta + twist_phase + r * twist_phase * 1.5
+            n_ang = 4.0 + smooth(498, overall, attack=0.1, decay=0.99) * 5.0
             p = math.cos(r * (3.0 + overall * 3.0)) * (0.6 + 0.4 * math.cos(n_ang * twisted))
             p2 = math.cos(r * 6.0) * math.cos((n_ang + 2) * twisted) * 0.4
             val = max(nodal(p, 0.22), nodal(p2, 0.18) * 0.5)
@@ -918,8 +924,11 @@ def exp_color_cycle(frame, w, h, t, col_fft):
         for x in range(w):
             nx = x / (w-1)
             fv = mirror_fft[x]
-            # Color tint pattern modulated by FFT
-            v = (math.sin(nx * 5 + t * 0.5) * math.sin(ny * 5 + t * 0.3) + 1) * 0.5
+            # Blobby plasma pattern (not vertical lines)
+            v1 = math.sin(nx * 4 + ny * 3 + t * 0.4)
+            v2 = math.cos(nx * 3 - ny * 4 + t * 0.3)
+            v3 = math.sin(math.sqrt(nx*nx + ny*ny) * 5 + t * 0.5)
+            v = (v1 + v2 + v3 + 3) / 6.0
             val = v * (0.3 + fv * 1.2)
             if val > 0.03:
                 # Hue shifts with FFT — different frequencies = different colors
@@ -948,14 +957,19 @@ def exp_scanner(frame, w, h, t, col_fft):
 
 
 def exp_bonfire(frame, w, h, t, col_fft):
-    """Bonfire — flames rising from bottom, height = FFT. Warm colors."""
+    """Bonfire — soft blurred flames rising from bottom, height = FFT."""
     mirror_fft = get_col_fft_mirror(w, offset=310)
+    # Extra smooth for softer flame edges
+    for x in range(len(mirror_fft)):
+        mirror_fft[x] = smooth(310 + x, mirror_fft[x], attack=0.5, decay=0.95)
     for x in range(w):
         fv = mirror_fft[x]
         if fv < 0.02: continue
-        flame_h = fv * h * 0.9
+        # Blend with neighbors for softer horizontal edges
+        if x > 0: fv = fv * 0.6 + mirror_fft[x-1] * 0.2 + (mirror_fft[min(len(mirror_fft)-1, x+1)] * 0.2)
+        flame_h = fv * h * 0.95
         for y in range(h):
-            base = h - 1 - y  # 0 at bottom, h-1 at top
+            base = h - 1 - y
             if base < flame_h:
                 frac = base / max(1, flame_h)  # 0 at bottom, 1 at flame tip
                 # Warm fire colors: red at base → orange → yellow at tip
@@ -981,10 +995,11 @@ def exp_vortex(frame, w, h, t, col_fft):
             theta = math.atan2(ny, nx)
             fv = mirror_fft[x]
             if fv < 0.02: continue
-            # Multiple spiral arms with different colors
+            # Multiple spiral arms — offset theta to avoid left-edge discontinuity
             val = 0
+            smooth_theta = theta + math.pi  # 0 to 2π range, no discontinuity at left
             for arm in range(3):
-                spiral = math.sin(3 * theta + r * (3.0 + fv * 3.0) + arm * 2.1)
+                spiral = math.sin(3 * smooth_theta + r * (3.0 + fv * 3.0) + arm * 2.1)
                 val += max(0, spiral) * 0.5
             val = min(1.0, val * fv * 1.5)
             if val > 0.03:
@@ -1003,7 +1018,7 @@ def exp_falling(frame, w, h, t, col_fft):
         hue = (x / max(w-1, 1) * 0.7 + t * 0.02) % 1.0
         r, g, b = hsv(hue, 0.85, 1.0)
         # Single slow drop with long trail — wave-like sine modulation
-        drop_speed = 0.4 + fv * 0.3  # SLOW
+        drop_speed = 0.2 + fv * 0.15  # VERY SLOW
         drop_y = ((t * drop_speed + x * 0.13) % 1.0)
         py = int(drop_y * (h - 1))
         # Long trail with sine wave modulation
@@ -1065,8 +1080,12 @@ def exp_horizon_dual(frame, w, h, t, col_fft):
 
 
 def exp_hex_grid(frame, w, h, t, col_fft):
-    """Hexagonal grid — hexes grow/shrink in waves driven by FFT."""
+    """Hexagonal grid — hexes grow/shrink in slow waves driven by FFT."""
+    # Use extra-slow smooth for calmer animation
     mirror_fft = get_col_fft_mirror(w, offset=290)
+    # Apply extra smoothing for slower response
+    for x in range(len(mirror_fft)):
+        mirror_fft[x] = smooth(290 + x, mirror_fft[x], attack=0.3, decay=0.96)
     for y in range(h):
         ny = y / (h-1)
         for x in range(w):
@@ -1092,24 +1111,37 @@ def exp_hex_grid(frame, w, h, t, col_fft):
                 frame[y, x] = [r, g, b]
 
 
-def exp_horizon_wave(frame, w, h, t, col_fft):
-    """Wave horizon — always-visible line whose vertical position = FFT."""
+def exp_firefly(frame, w, h, t, col_fft):
+    """Firefly — glowing embers zipping along curved paths. FFT drives brightness."""
     mirror_fft = get_col_fft_mirror(w, offset=310)
-    center = h // 2
-    for x in range(w):
-        fv = max(mirror_fft[x], 0.1)  # minimum visibility — never disappears
-        # Wave position: center when quiet, moves with FFT
-        wave_y = center + int((fv - 0.3) * center * 1.2)
-        wave_y = max(1, min(h-2, wave_y))
-        hue = (x / max(w-1, 1) * 0.7 + t * 0.03) % 1.0
-        r, g, b = hsv(hue, 0.85, 1.0)
-        glow_r = int(5 + fv * 4)  # wider glow with more energy
-        for y in range(max(0, wave_y - glow_r), min(h, wave_y + glow_r + 1)):
-            dist = abs(y - wave_y)
-            glow = (1.0 - dist / glow_r) * min(1.0, fv * 1.5)
-            frame[y, x] = [max(frame[y, x, 0], int(r * glow)),
-                           max(frame[y, x, 1], int(g * glow)),
-                           max(frame[y, x, 2], int(b * glow))]
+    # 12 fireflies with deterministic curved paths
+    n_flies = 12
+    for i in range(n_flies):
+        # Curved path using parametric sine waves
+        speed = 0.3 + i * 0.07
+        fx = (math.sin(t * speed + i * 2.3) * 0.5 + 0.5)  # 0-1 x position
+        fy = (math.cos(t * speed * 0.7 + i * 1.7) * 0.5 + 0.5)  # 0-1 y position
+        px = int(fx * (w - 1))
+        py = int(fy * (h - 1))
+        px = max(0, min(w-1, px))
+        py = max(0, min(h-1, py))
+        # Brightness from FFT at this position
+        fv = mirror_fft[px] if px < len(mirror_fft) else 0.3
+        if fv < 0.02: continue
+        hue = (i / n_flies + t * 0.02) % 1.0
+        r, g, b = hsv(hue, 0.85, min(1.0, fv * 2.0))
+        # Glow radius
+        glow_r = int(2 + fv * 3)
+        for dy in range(-glow_r, glow_r + 1):
+            for dx in range(-glow_r, glow_r + 1):
+                gy, gx = py + dy, px + dx
+                if 0 <= gy < h and 0 <= gx < w:
+                    dist = math.sqrt(dy*dy + dx*dx)
+                    if dist <= glow_r:
+                        intensity = (1.0 - dist / glow_r) * fv * 1.5
+                        frame[gy, gx] = [max(frame[gy, gx, 0], int(r * intensity)),
+                                         max(frame[gy, gx, 1], int(g * intensity)),
+                                         max(frame[gy, gx, 2], int(b * intensity))]
 
 
 def exp_circuit(frame, w, h, t, col_fft):
@@ -1217,7 +1249,7 @@ EXPERIMENTS = [
     ("P15 Prism", exp_prism),
     # Cymatics / Horizon styles
     ("C1 Hex Grid", exp_hex_grid),
-    ("C2 Wave Horizon", exp_horizon_wave),
+    ("C2 Firefly", exp_firefly),
     ("C3 Cym Breathing", exp_cym_spatial),
     ("C4 Multi Horizon", exp_horizon_multi),
     ("C5 Vortex", exp_vortex),
@@ -1272,27 +1304,33 @@ def apply_fx(frame, trail_buf):
         result = np.maximum(f, aged)
         return np.clip(result, 0, 255).astype(np.uint8)
 
-    elif current_fx == "sparkle":
-        # Ghost Flames: edges emit upward-drifting ghost plasma
+    elif current_fx == "ghost":
+        # Edge Glow: bright pixels next to dark pixels get a bright halo
+        # Like coronal plasma / solar corona effect
         f = frame.astype(np.float32)
         h, w = f.shape[:2]
-        # Shift trail UP by 1 pixel (flames rise)
-        trail_buf[:-1, :, :] = trail_buf[1:, :, :]
-        trail_buf[-1, :, :] = 0
-        trail_buf *= 0.82  # medium decay
-        # Detect edges (brightness gradient) and emit ghosts there
         bright = f.max(axis=2)
-        for y in range(1, h-1):
-            for x in range(1, w-1):
-                # Edge = high gradient between neighbors
-                grad = abs(float(bright[y, x]) - float(bright[y, x-1])) + \
-                       abs(float(bright[y, x]) - float(bright[y-1, x]))
-                if grad > 30:
-                    # Emit ghost: copy color but shift hue warm (orange/red)
-                    trail_buf[y, x, 0] = min(255, trail_buf[y, x, 0] + f[y, x, 0] * 0.5 + grad * 0.5)
-                    trail_buf[y, x, 1] = min(255, trail_buf[y, x, 1] + f[y, x, 1] * 0.3)
-                    trail_buf[y, x, 2] = min(255, trail_buf[y, x, 2] + f[y, x, 2] * 0.2)
-        result = np.maximum(f, trail_buf)
+        result = f.copy()
+        # Find edges: where bright meets dark
+        for y in range(h):
+            for x in range(w):
+                if bright[y, x] < 20: continue  # skip dark pixels
+                # Check neighbors — if any neighbor is dark, this is an edge
+                is_edge = False
+                for dy, dx in [(-1,0),(1,0),(0,-1),(0,1)]:
+                    ny, nx = y+dy, x+dx
+                    if 0 <= ny < h and 0 <= nx < w and bright[ny, nx] < bright[y, x] * 0.3:
+                        is_edge = True
+                        break
+                if is_edge:
+                    # Boost this pixel and spread glow to dark neighbors
+                    boost = min(1.5, bright[y, x] / 100.0)
+                    result[y, x] = np.minimum(255, f[y, x] * (1.0 + boost * 0.5))
+                    for dy, dx in [(-1,0),(1,0),(0,-1),(0,1),(-1,-1),(1,1),(-1,1),(1,-1)]:
+                        ny, nx = y+dy, x+dx
+                        if 0 <= ny < h and 0 <= nx < w:
+                            glow = f[y, x] * boost * 0.3
+                            result[ny, nx] = np.maximum(result[ny, nx], glow)
         return np.clip(result, 0, 255).astype(np.uint8)
 
     elif current_fx == "plasma":
