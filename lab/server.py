@@ -1392,6 +1392,128 @@ def exp_firefly_trail(frame, w, h, t, col_fft):
                 frame[y, x, c] = max(frame[y, x, c], int(min(255, trail[y, x, c])))
 
 
+# ─── New geometric animations inspired by reference images ───────────────────
+
+def exp_network_globe(frame, w, h, t, col_fft):
+    """Network Globe — curved mesh lines with bright nodes. Like a data sphere."""
+    mirror_fft = get_col_fft_mirror(w, offset=350)
+    aspect = w / max(h, 1)
+    for y in range(h):
+        ny = y / (h-1) - 0.5
+        for x in range(w):
+            nx = (x / (w-1) - 0.5) * aspect
+            fv = mirror_fft[x]
+            # Curved grid: sine-based mesh that curves like a sphere surface
+            # Horizontal curves (latitude lines)
+            lat = math.sin(ny * math.pi * 4 + nx * 0.5 + t * 0.3)
+            # Vertical curves (longitude lines that converge)
+            lon = math.sin(nx * 3.0 + ny * ny * 2 + t * 0.2)
+            # Mesh: bright where either line is near zero (crossing lines)
+            mesh = max(0, 1.0 - abs(lat) * 4.0) + max(0, 1.0 - abs(lon) * 5.0)
+            # Node glow at intersections (where both are near zero)
+            node = max(0, 1.0 - (abs(lat) + abs(lon)) * 3.0) * 2.0
+            val = (mesh * 0.5 + node * 1.0) * (0.3 + fv * 1.2)
+            if val > 0.03:
+                # Cyan/pink color scheme like the reference
+                hue = (nx * 0.1 + ny * 0.2 + fv * 0.3 + 0.5) % 1.0
+                r, g, b = hsv(hue, 0.7, min(1.0, val))
+                frame[y, x] = [r, g, b]
+
+
+def exp_light_web(frame, w, h, t, col_fft):
+    """Light Web — intersecting curved light beams forming a web structure."""
+    mirror_fft = get_col_fft_mirror(w, offset=360)
+    aspect = w / max(h, 1)
+    for y in range(h):
+        ny = y / (h-1) - 0.5
+        for x in range(w):
+            nx = (x / (w-1) - 0.5) * aspect
+            fv = mirror_fft[x]
+            val = 0.0
+            # 5 curved beams at different angles
+            for i in range(5):
+                angle = i * math.pi / 5 + t * 0.1
+                # Beam: a curved line through space
+                beam_dist = abs(ny - 0.2 * math.sin(nx * 2.0 + angle) * math.cos(angle))
+                beam = max(0, 1.0 - beam_dist * 12.0)
+                val += beam * 0.4
+            val = min(1.0, val * (0.3 + fv * 1.5))
+            if val > 0.03:
+                hue = (nx * 0.15 + ny * 0.1 + t * 0.02 + 0.55) % 1.0
+                r, g, b = hsv(hue, 0.75, min(1.0, val))
+                frame[y, x] = [r, g, b]
+
+
+def exp_constellation(frame, w, h, t, col_fft):
+    """Constellation — bright star nodes connected by thin lines, FFT drives brightness."""
+    mirror_fft = get_col_fft_mirror(w, offset=370)
+    # 15 deterministic star positions
+    n_stars = 15
+    stars = []
+    for i in range(n_stars):
+        sx = (math.sin(i * 3.7 + 1.3) * 0.5 + 0.5)
+        sy = (math.cos(i * 2.9 + 0.7) * 0.5 + 0.5)
+        stars.append((sx, sy))
+    for y in range(h):
+        ny = y / (h-1)
+        for x in range(w):
+            nx = x / (w-1)
+            fv = mirror_fft[x]
+            if fv < 0.02: continue
+            val = 0.0
+            # Star glow
+            for sx, sy in stars:
+                dist = math.sqrt((nx - sx)**2 + (ny - sy)**2)
+                if dist < 0.08:
+                    val += max(0, (0.08 - dist) / 0.08) * 1.5
+            # Connection lines between nearby stars
+            for i in range(len(stars)):
+                for j in range(i+1, min(i+3, len(stars))):
+                    sx1, sy1 = stars[i]
+                    sx2, sy2 = stars[j]
+                    # Distance from pixel to line segment
+                    dx, dy = sx2 - sx1, sy2 - sy1
+                    seg_len = math.sqrt(dx*dx + dy*dy)
+                    if seg_len < 0.01: continue
+                    t_proj = max(0, min(1, ((nx-sx1)*dx + (ny-sy1)*dy) / (seg_len*seg_len)))
+                    px, py = sx1 + t_proj * dx, sy1 + t_proj * dy
+                    line_dist = math.sqrt((nx-px)**2 + (ny-py)**2)
+                    if line_dist < 0.02:
+                        val += max(0, (0.02 - line_dist) / 0.02) * 0.5
+            val = min(1.0, val * (0.3 + fv * 1.2))
+            if val > 0.02:
+                hue = (nx * 0.2 + ny * 0.1 + t * 0.02 + 0.6) % 1.0
+                r, g, b = hsv(hue, 0.6, min(1.0, val))
+                frame[y, x] = [r, g, b]
+
+
+def exp_geometric_flow(frame, w, h, t, col_fft):
+    """Geometric Flow — triangular/diamond shapes that flow across the panel."""
+    mirror_fft = get_col_fft_mirror(w, offset=380)
+    for y in range(h):
+        ny = y / (h-1)
+        for x in range(w):
+            nx = x / (w-1)
+            fv = mirror_fft[x]
+            if fv < 0.02: continue
+            # Diamond grid that flows horizontally
+            gx = nx * 8 + t * 0.3
+            gy = ny * 4
+            # Diamond pattern: |x| + |y| creates diamonds
+            dx = abs((gx % 1.0) - 0.5) * 2
+            dy = abs((gy % 1.0) - 0.5) * 2
+            diamond = dx + dy
+            # Bright at diamond edges
+            edge = max(0, 1.0 - abs(diamond - 0.8) * 8.0)
+            # Additional: triangular subdivisions
+            tri = max(0, 1.0 - abs(math.sin(gx * math.pi) * math.sin(gy * math.pi)) * 6.0) * 0.4
+            val = (edge + tri) * (0.3 + fv * 1.2)
+            if val > 0.03:
+                hue = (nx * 0.3 + ny * 0.2 + fv * 0.2 + t * 0.02) % 1.0
+                r, g, b = hsv(hue, 0.8, min(1.0, val))
+                frame[y, x] = [r, g, b]
+
+
 EXPERIMENTS = [
     # Patterns (column-based, all symmetric or mirrored)
     ("P1 Freq Bars", exp_freq_bars),
@@ -1428,6 +1550,11 @@ EXPERIMENTS = [
     ("K5 Kal Mirror", exp_kal_mirror),
     ("K6 Kal Crystal", exp_kal_crystal),
     ("K7 Circuit", exp_circuit),
+    # New geometric animations
+    ("G1 Network Globe", exp_network_globe),
+    ("G2 Light Web", exp_light_web),
+    ("G3 Constellation", exp_constellation),
+    ("G4 Geometric Flow", exp_geometric_flow),
 ]
 
 
