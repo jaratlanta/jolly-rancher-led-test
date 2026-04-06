@@ -61,11 +61,11 @@
 
 <h1>Animation Lab</h1>
 
-<div class="panel-label">Front Panel (72×24)</div>
-<div class="panel-wrap"><canvas id="front-canvas"></canvas></div>
-
-<div class="panel-label">Side Panel (220×24)</div>
-<div class="panel-wrap"><canvas id="side-canvas"></canvas></div>
+<div style="display: flex; gap: 10px; align-items: flex-end; width: 100%; max-width: 100%;">
+    <div class="panel-wrap" style="flex-shrink: 0;"><canvas id="test-canvas"></canvas></div>
+    <div class="panel-wrap" style="flex-shrink: 0;"><canvas id="front-canvas"></canvas></div>
+</div>
+<div class="panel-wrap" style="width: 100%;"><canvas id="side-canvas"></canvas></div>
 
 <div class="controls">
     <button id="prev-btn">◄</button>
@@ -93,8 +93,10 @@
 <div class="status" id="status">Connecting...</div>
 
 <script>
+const testCanvas = document.getElementById('test-canvas');
 const frontCanvas = document.getElementById('front-canvas');
 const sideCanvas = document.getElementById('side-canvas');
+const testCtx = testCanvas.getContext('2d');
 const frontCtx = frontCanvas.getContext('2d');
 const sideCtx = sideCanvas.getContext('2d');
 
@@ -179,12 +181,15 @@ function connect() {
     ws.onmessage = (e) => {
         if (e.data instanceof ArrayBuffer) {
             const data = new Uint8Array(e.data);
+            const tw = state.test_w || 24, th = state.test_h || 12;
             const fw = state.front_w || 72, fh = state.front_h || 24;
             const sw = state.side_w || 220, sh = state.side_h || 24;
+            const testSize = tw * th * 3;
             const frontSize = fw * fh * 3;
 
-            renderLedPanel(frontCtx, frontCanvas, data, 0, fw, fh);
-            renderLedPanel(sideCtx, sideCanvas, data, frontSize, sw, sh);
+            renderLedPanel(testCtx, testCanvas, data, 0, tw, th);
+            renderLedPanel(frontCtx, frontCanvas, data, testSize, fw, fh);
+            renderLedPanel(sideCtx, sideCanvas, data, testSize + frontSize, sw, sh);
         } else {
             state = JSON.parse(e.data);
             document.getElementById('exp-name').textContent = state.exp_name || '—';

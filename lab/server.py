@@ -46,6 +46,7 @@ audio_last_time = 0
 smooth_state = np.zeros(512, dtype=np.float32)
 
 # Panel dimensions
+TEST_W, TEST_H = 24, 12
 FRONT_W, FRONT_H = 72, 24
 SIDE_W, SIDE_H = 220, 24
 FPS = 20
@@ -55,6 +56,7 @@ current_fx = "none"  # "none", "glow", "trail"
 FX_LIST = ["none", "glow", "trail", "ghost", "plasma"]
 
 # Trail buffers (persistent frame that decays)
+_trail_test = np.zeros((TEST_H, TEST_W, 3), dtype=np.float32)
 _trail_front = np.zeros((FRONT_H, FRONT_W, 3), dtype=np.float32)
 _trail_side = np.zeros((SIDE_H, SIDE_W, 3), dtype=np.float32)
 
@@ -98,12 +100,20 @@ def get_col_fft_mirror(w, offset=0):
     vals = np.zeros(w, dtype=np.float32)
     center = w / 2
     for x in range(w):
-        # Distance from center → FFT position (center=treble, edges=bass)
-        dist = abs(x - center) / center  # 0 at center, 1 at edges
-        norm = 1.0 - dist  # flip: 0 at edges (bass), 1 at center (treble)
+        dist = abs(x - center) / center
+        norm = 1.0 - dist
         raw = get_fft(norm)
         vals[x] = smooth(offset + x, raw)
     return vals
+
+
+def get_radial_fft(r, max_r=5.0, offset=0):
+    """Get smoothed FFT value at radius r. For radial/cymatics patterns.
+    r=0 → bass (bin 0), r=max_r → treble (bin 127). Truly symmetric."""
+    r_norm = min(1.0, r / max_r)
+    raw = get_fft(r_norm)
+    idx = offset + int(r_norm * 50)
+    return smooth(idx, raw)
 
 
 def hsv(h, s=1.0, v=1.0):
@@ -312,8 +322,11 @@ def exp_bars_mirror(frame, w, h, t, col_fft):
 
 
 def exp_spectrum_waterfall(frame, w, h, t, col_fft):
-    """P4. Striped waterfall — horizontal stripes whose brightness = FFT. Audio-reactive."""
+    """P4. Striped waterfall — smooth horizontal stripes. Extra smoothed to reduce flicker."""
     mirror_fft = get_col_fft_mirror(w, offset=270)
+    # Extra smooth pass to reduce flicker
+    for x in range(len(mirror_fft)):
+        mirror_fft[x] = smooth(270 + x, mirror_fft[x], attack=0.4, decay=0.95)
     for y in range(h):
         ny = y / (h-1)
         # Each row is a different horizontal band — offset by time for scrolling
@@ -476,19 +489,18 @@ def exp_cym_mirror(frame, w, h, t, col_fft):
 
 
 def exp_cym_spatial(frame, w, h, t, col_fft):
-    """C3. Cymatics breathing — thick orbiting lines. Mirrored FFT."""
+    """C3. Cymatics breathing — thick orbiting lines. Radial FFT (no line)."""
     aspect = w / max(h, 1)
-    mirror_fft = get_col_fft_mirror(w, offset=380)
     for y in range(h):
         ny = y / (h-1) - 0.5
         for x in range(w):
             nx = (x / (w-1) - 0.5) * aspect
             r = math.sqrt(nx*nx + ny*ny)
             theta = math.atan2(ny, nx)
-            fv = mirror_fft[x]
+            fv = get_radial_fft(r, offset=380)
             sf = 3.0 + fv * 5.0
             p = math.cos(r * sf) * (0.6 + 0.4 * math.cos(6 * theta))
-            val = nodal(p, 0.45 + fv * 0.25) * (0.3 + fv * 1.0)  # VERY thick lines
+            val = nodal(p, 0.55 + fv * 0.3) * (0.3 + fv * 1.0)  # EXTRA thick lines
             if val > 0.03:
                 hue = ((theta + 3.14) / 6.28 * 0.6 + r * 0.5 + t * 0.02) % 1.0
                 rc, gc, bc = hsv(hue, 0.8, min(1.0, val * 1.3))
@@ -505,7 +517,7 @@ def exp_horizon_multi(frame, w, h, t, col_fft):
             hue = (x / max(w-1, 1) * 0.6 + i * 0.15 + t * 0.03) % 1.0
             r, g, b = hsv(hue, 0.85, 1.0)
             # Gentle wave — small amplitude so lines stay visible
-            wave = fv * 2.0 * math.sin(x * 0.03 + i * 1.5 + t * 0.3)
+            wave = fv * 5.0 * math.sin(x * 0.02 + i * 1.5 + t * 0.3)  # bigger wave
             line_y = int(base_h * h + wave)
             line_y = max(2, min(h-3, line_y))
             glow_r = int(3 + fv * 3)
@@ -570,7 +582,9 @@ def exp_cym_expanding(frame, w, h, t, col_fft):
             # Smooth twist: eases one direction then the other
             twist_phase = math.sin(rotation * 0.5) * 0.5
             twisted = theta + twist_phase + r * twist_phase * 1.5
-            n_ang = 4.0 + smooth(498, overall, attack=0.1, decay=0.99) * 5.0
+            n_ang_raw = 4.0 + smooth(498, overall, attack=0.1, decay=0.99) * 4.0
+            n_ang = round(n_ang_raw)  # integer = no theta discontinuity
+            if n_ang < 4: n_ang = 4
             p = math.cos(r * (3.0 + overall * 3.0)) * (0.6 + 0.4 * math.cos(n_ang * twisted))
             p2 = math.cos(r * 6.0) * math.cos((n_ang + 2) * twisted) * 0.4
             val = max(nodal(p, 0.22), nodal(p2, 0.18) * 0.5)
@@ -628,18 +642,17 @@ def exp_cym_star(frame, w, h, t, col_fft):
 
 
 def exp_cym_flower(frame, w, h, t, col_fft):
-    """C10. Flower petals — soft gradients, no hard edges."""
+    """C10. Flower petals — radial FFT, no left-side line."""
     aspect = w / max(h, 1)
-    mirror_fft = get_col_fft_mirror(w, offset=440)
     for y in range(h):
         ny = y / (h-1) - 0.5
         for x in range(w):
             nx = (x / (w-1) - 0.5) * aspect
             r = math.sqrt(nx*nx + ny*ny)
             theta = math.atan2(ny, nx)
-            fv = mirror_fft[x]
+            fv = get_radial_fft(r, offset=440)
             if fv < 0.02: continue
-            petals = int(5 + fv * 5)
+            petals = max(4, int(5 + fv * 5))  # ensure even for symmetry
             petal = abs(math.cos(petals * theta * 0.5))
             petal_r = fv * 1.0 * (0.5 + 0.5 * petal)
             # Soft falloff instead of hard edge
@@ -962,34 +975,25 @@ def exp_scanner(frame, w, h, t, col_fft):
 
 
 def exp_bonfire(frame, w, h, t, col_fft):
-    """Bonfire — organic flowing flames, warm colors, soft edges."""
+    """Bonfire — sharp flame ripples from bottom, warm colors."""
     mirror_fft = get_col_fft_mirror(w, offset=310)
-    # Heavy smooth + neighbor blend for organic shape
-    for x in range(len(mirror_fft)):
-        mirror_fft[x] = smooth(310 + x, mirror_fft[x], attack=0.4, decay=0.96)
-    for y in range(h):
-        ny = 1.0 - y / (h-1)  # 0 at top, 1 at bottom
-        for x in range(w):
-            nx = x / (w-1)
-            # Blend FFT with neighbors for smooth flame shape
-            fv = mirror_fft[x]
-            if x > 1: fv = fv * 0.5 + mirror_fft[x-1] * 0.25 + mirror_fft[x-2] * 0.125
-            if x < w-2: fv += mirror_fft[x+1] * 0.25 + mirror_fft[x+2] * 0.125
-            fv = min(1.0, fv)
-            # Organic flame shape: turbulent noise modulates height
-            turb1 = math.sin(nx * 8 + t * 3 + ny * 4) * 0.15
-            turb2 = math.cos(nx * 12 - t * 5 + ny * 6) * 0.08
-            flame_edge = fv * 0.9 + turb1 + turb2
-            if ny > (1.0 - flame_edge):
-                # How deep into the flame we are
-                depth = (ny - (1.0 - flame_edge)) / max(0.01, flame_edge)
-                depth = min(1.0, depth)
-                # Rich flame colors: deep red → orange → yellow → white tip
-                hue = (1.0 - depth) * 0.1  # yellow at base, red at tip
-                sat = 0.9 - depth * 0.3
-                val = (0.4 + depth * 0.6) * min(1.0, fv * 1.5)
-                # Organic flicker
-                flicker = 0.7 + 0.3 * math.sin(nx * 15 + t * 6 + ny * 8)
+    for x in range(w):
+        fv = mirror_fft[x]
+        if fv < 0.02: continue
+        flame_h = fv * h * 0.9
+        for y in range(h):
+            base = h - 1 - y  # 0 at bottom
+            if base < flame_h:
+                frac = base / max(1, flame_h)
+                # Fire colors
+                hue = frac * 0.12
+                sat = 1.0 - frac * 0.3
+                val = (1.0 - frac * 0.3) * fv * 1.5
+                # Sharp flame ripple (high frequency flicker = flame tongues)
+                ripple = math.sin(x * 0.5 + y * 2.0 + t * 8.0)
+                ripple2 = math.sin(x * 0.3 - y * 1.5 + t * 12.0) * 0.5
+                val *= max(0.3, 0.5 + ripple * 0.3 + ripple2 * 0.2)
+                flicker = 0.7 + 0.3 * math.sin(x * 5.7 + t * 10 + y * 0.8)
                 val *= flicker
                 r, g, b = hsv(hue, sat, min(1.0, val))
                 frame[y, x] = [r, g, b]
@@ -1007,11 +1011,10 @@ def exp_vortex(frame, w, h, t, col_fft):
             r_norm = min(1.0, r / 5.0)
             fv = smooth(320 + int(r_norm * 50), get_fft(r_norm))
             if fv < 0.02: continue
-            # Multiple spiral arms — offset theta to avoid left-edge discontinuity
+            # Multiple spiral arms with even spacing (4 arms = no visible seam)
             val = 0
-            smooth_theta = theta + math.pi  # 0 to 2π range, no discontinuity at left
-            for arm in range(3):
-                spiral = math.sin(3 * smooth_theta + r * (3.0 + fv * 3.0) + arm * 2.1)
+            for arm in range(4):
+                spiral = math.sin(4 * theta + r * (3.0 + fv * 3.0) + arm * math.pi * 0.5)
                 val += max(0, spiral) * 0.5
             val = min(1.0, val * fv * 1.5)
             if val > 0.03:
@@ -1030,7 +1033,7 @@ def exp_falling(frame, w, h, t, col_fft):
         hue = (x / max(w-1, 1) * 0.7 + t * 0.02) % 1.0
         r, g, b = hsv(hue, 0.85, 1.0)
         # Single slow drop with long trail — wave-like sine modulation
-        drop_speed = 0.1 + fv * 0.08  # EXTREMELY SLOW
+        drop_speed = 0.04 + fv * 0.03  # GLACIAL — visible slow-motion rain
         drop_y = ((t * drop_speed + x * 0.13) % 1.0)
         py = int(drop_y * (h - 1))
         # Long trail with sine wave modulation
@@ -1139,7 +1142,7 @@ def exp_firefly(frame, w, h, t, col_fft):
     n_flies = 20  # more flies, smaller
     for i in range(n_flies):
         # Abstract tangled paths — multiple sine frequencies
-        speed = 0.5 + i * 0.08
+        speed = 0.15 + i * 0.03  # slow graceful movement
         fx = (math.sin(t * speed + i * 2.3) * 0.4 +
               math.sin(t * speed * 1.7 + i * 0.9) * 0.3 + 0.5)
         fy = (math.cos(t * speed * 0.6 + i * 1.7) * 0.4 +
@@ -1254,6 +1257,46 @@ def exp_kal_grid(frame, w, h, t, col_fft):
                 frame[y, x] = [rc, gc, bc]
 
 
+def exp_firefly_trail(frame, w, h, t, col_fft):
+    """Firefly with LONG glowing trails — same paths but trails persist longer."""
+    if not hasattr(exp_firefly_trail, '_trail'):
+        exp_firefly_trail._trail = np.zeros((24, 220, 3), dtype=np.float32)
+    trail = exp_firefly_trail._trail
+    if trail.shape[0] != h or trail.shape[1] != w:
+        exp_firefly_trail._trail = np.zeros((h, w, 3), dtype=np.float32)
+        trail = exp_firefly_trail._trail
+    trail *= 0.95  # SLOW decay = long trails
+
+    mirror_fft = get_col_fft_mirror(w, offset=315)
+    n_flies = 15
+    for i in range(n_flies):
+        speed = 0.12 + i * 0.025
+        fx = (math.sin(t * speed + i * 2.3) * 0.4 +
+              math.sin(t * speed * 1.7 + i * 0.9) * 0.3 + 0.5)
+        fy = (math.cos(t * speed * 0.6 + i * 1.7) * 0.4 +
+              math.cos(t * speed * 1.3 + i * 3.1) * 0.3 + 0.5)
+        px = int(max(0, min(1, fx)) * (w - 1))
+        py = int(max(0, min(1, fy)) * (h - 1))
+        fv = mirror_fft[px] if px < len(mirror_fft) else 0.3
+        if fv < 0.02: continue
+        hue = (i / n_flies + t * 0.01) % 1.0
+        r, g, b = hsv(hue, 0.75, min(1.0, fv * 2.0))
+        # Stamp into trail with glow
+        for dy in range(-1, 2):
+            for dx in range(-1, 2):
+                gy, gx = py+dy, px+dx
+                if 0 <= gy < h and 0 <= gx < w:
+                    d = math.sqrt(dy*dy + dx*dx)
+                    intensity = max(0, 1.0 - d * 0.5) * fv
+                    trail[gy, gx] = [max(trail[gy, gx, 0], r * intensity),
+                                     max(trail[gy, gx, 1], g * intensity),
+                                     max(trail[gy, gx, 2], b * intensity)]
+        frame[py, px] = [min(255, int(r * 1.3)), min(255, int(g * 1.3)), min(255, int(b * 1.3))]
+
+    result = np.maximum(frame.astype(np.float32), trail)
+    frame[:] = np.clip(result, 0, 255).astype(np.uint8)
+
+
 EXPERIMENTS = [
     # Patterns (column-based, all symmetric or mirrored)
     ("P1 Freq Bars", exp_freq_bars),
@@ -1274,6 +1317,7 @@ EXPERIMENTS = [
     # Cymatics / Horizon styles
     ("C1 Hex Grid", exp_hex_grid),
     ("C2 Firefly", exp_firefly),
+    ("C2b Firefly Trail", lambda f,w,h,t,c: exp_firefly_trail(f,w,h,t,c)),
     ("C3 Cym Breathing", exp_cym_spatial),
     ("C4 Multi Horizon", exp_horizon_multi),
     ("C5 Vortex", exp_vortex),
@@ -1329,32 +1373,30 @@ def apply_fx(frame, trail_buf):
         return np.clip(result, 0, 255).astype(np.uint8)
 
     elif current_fx == "ghost":
-        # Edge Glow: bright pixels next to dark pixels get a bright halo
-        # Like coronal plasma / solar corona effect
+        # Strong edge corona: bright edges bloom outward with blur
         f = frame.astype(np.float32)
         h, w = f.shape[:2]
         bright = f.max(axis=2)
-        result = f.copy()
-        # Find edges: where bright meets dark
-        for y in range(h):
-            for x in range(w):
-                if bright[y, x] < 20: continue  # skip dark pixels
-                # Check neighbors — if any neighbor is dark, this is an edge
-                is_edge = False
-                for dy, dx in [(-1,0),(1,0),(0,-1),(0,1)]:
-                    ny, nx = y+dy, x+dx
-                    if 0 <= ny < h and 0 <= nx < w and bright[ny, nx] < bright[y, x] * 0.3:
-                        is_edge = True
-                        break
-                if is_edge:
-                    # Boost this pixel and spread glow to dark neighbors
-                    boost = min(1.5, bright[y, x] / 100.0)
-                    result[y, x] = np.minimum(255, f[y, x] * (1.0 + boost * 0.5))
-                    for dy, dx in [(-1,0),(1,0),(0,-1),(0,1),(-1,-1),(1,1),(-1,1),(1,-1)]:
-                        ny, nx = y+dy, x+dx
-                        if 0 <= ny < h and 0 <= nx < w:
-                            glow = f[y, x] * boost * 0.3
-                            result[ny, nx] = np.maximum(result[ny, nx], glow)
+        # Detect edges
+        edge_map = np.zeros((h, w), dtype=np.float32)
+        for y in range(1, h-1):
+            for x in range(1, w-1):
+                grad = (abs(float(bright[y,x]) - float(bright[y,x-1])) +
+                        abs(float(bright[y,x]) - float(bright[y-1,x])) +
+                        abs(float(bright[y,x]) - float(bright[y,x+1])) +
+                        abs(float(bright[y,x]) - float(bright[y+1,x]))) / 4
+                edge_map[y, x] = grad
+        # Multi-pass blur on edge map for soft spread
+        blurred_edges = edge_map.copy()
+        for _ in range(3):
+            tmp = np.zeros_like(blurred_edges)
+            for dy in range(-1, 2):
+                for dx in range(-1, 2):
+                    tmp += np.roll(np.roll(blurred_edges, dy, axis=0), dx, axis=1)
+            blurred_edges = tmp / 9.0
+        # Apply: boost pixels proportional to blurred edge strength
+        edge_boost = blurred_edges[:, :, np.newaxis] / 80.0  # normalize
+        result = f + f * edge_boost * 2.0  # strong bloom
         return np.clip(result, 0, 255).astype(np.uint8)
 
     elif current_fx == "plasma":
@@ -1422,12 +1464,21 @@ def render_loop():
         except Exception as e:
             pass
 
+        # Render test panel
+        test = np.zeros((TEST_H, TEST_W, 3), dtype=np.uint8)
+        test_fft = get_col_fft(TEST_W, offset=200)
+        try:
+            exp_fn(test, TEST_W, TEST_H, t, test_fft)
+        except Exception:
+            pass
+
         # Apply FX
+        test = apply_fx(test, _trail_test)
         front = apply_fx(front, _trail_front)
         side = apply_fx(side, _trail_side)
 
-        # Pack into one message: front bytes + side bytes concatenated
-        frame_bytes = front.tobytes() + side.tobytes()
+        # Pack: test + front + side
+        frame_bytes = test.tobytes() + front.tobytes() + side.tobytes()
 
         # Send state + frame
         state = json.dumps({
@@ -1435,6 +1486,7 @@ def render_loop():
             "exp_name": exp_name,
             "exp_idx": current_exp % len(EXPERIMENTS),
             "exp_count": len(EXPERIMENTS),
+            "test_w": TEST_W, "test_h": TEST_H,
             "front_w": FRONT_W, "front_h": FRONT_H,
             "side_w": SIDE_W, "side_h": SIDE_H,
             "fx": current_fx,
