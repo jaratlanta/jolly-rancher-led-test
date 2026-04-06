@@ -82,7 +82,7 @@
         </div>
         <button id="pal-next" style="padding:5px 8px; font-size:0.7rem;">►</button>
     </div>
-    <button class="audio-btn" id="audio-btn">🎤 Audio Off</button>
+    <button class="audio-btn" id="audio-btn">Audio Off</button>
     <div style="display:flex; gap:4px;">
         <button class="fx-btn active" id="fx-none">None</button>
         <button class="fx-btn" id="fx-glow">Glow</button>
@@ -226,7 +226,7 @@ async function startAudio() {
         fftArray = new Uint8Array(128);
         audioActive = true;
         document.getElementById('audio-btn').classList.add('active');
-        document.getElementById('audio-btn').textContent = '🎤 Audio On';
+        document.getElementById('audio-btn').textContent = 'Audio On';
         sendFFT();
     } catch (err) {
         alert('Mic access denied');
@@ -238,7 +238,7 @@ function stopAudio() {
     if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
     if (audioCtx) { audioCtx.close(); audioCtx = null; }
     document.getElementById('audio-btn').classList.remove('active');
-    document.getElementById('audio-btn').textContent = '🎤 Audio Off';
+    document.getElementById('audio-btn').textContent = 'Audio Off';
 }
 
 function sendFFT() {
