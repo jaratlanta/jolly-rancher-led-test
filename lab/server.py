@@ -53,6 +53,9 @@ PALETTES = [
 ]
 current_palette = 0
 
+# Global speed (BPM slider: 0-200, default 120, maps to 0-1.67x speed)
+global_bpm = 120
+
 # Whether browser is sending real audio
 audio_active = False
 audio_last_time = 0
@@ -616,10 +619,10 @@ def exp_cym_expanding(frame, w, h, t, col_fft):
     """C7. Expanding + twirling cymatics — radial FFT (no left-side line)."""
     aspect = w / max(h, 1)
     # Use radial FFT average for overall energy
-    overall = smooth(497, sum(col_fft) / max(len(col_fft), 1), attack=0.3, decay=0.97)
+    overall = smooth(497, sum(col_fft) / max(len(col_fft), 1), attack=0.05, decay=0.998)  # ultra smooth
     vis_radius = overall * 8.0 + 0.5
     # Ultra-smooth rotation using high decay smooth
-    rotation = smooth(499, overall, attack=0.1, decay=0.995) * 3.0
+    rotation = smooth(499, overall, attack=0.02, decay=0.999) * 3.0  # very very smooth
     for y in range(h):
         ny = y / (h-1) - 0.5
         for x in range(w):
@@ -1037,20 +1040,26 @@ def exp_bonfire(frame, w, h, t, col_fft):
     buf[-1, :, :] = 0
     # Inject heat at bottom row based on FFT
     mirror_fft = get_col_fft_mirror(w, offset=310)
-    for x in range(w):
-        fv = mirror_fft[x]
-        if fv < 0.02: continue
-        # Hot colors at bottom: bright yellow/white
+    for x in range(min(w, bw)):
+        fv = max(mirror_fft[x], 0.15)  # always some heat — no gaps
         heat = fv * 255
         buf[bh-1, x] = [min(255, heat * 1.0), min(255, heat * 0.7), min(255, heat * 0.2)]
-        # Spread to neighbors
-        if x > 0: buf[bh-1, x-1] = np.maximum(buf[bh-1, x-1], buf[bh-1, x] * 0.4)
-        if x < bw-1: buf[bh-1, x+1] = np.maximum(buf[bh-1, x+1], buf[bh-1, x] * 0.4)
-    # Multiple horizontal blur passes — eliminates ALL black stripes
-    for _ in range(3):
+        # Wide spread to neighbors
+        for spread in range(1, 4):
+            factor = 0.3 / spread
+            if x - spread >= 0:
+                buf[bh-1, x-spread] = np.maximum(buf[bh-1, x-spread], buf[bh-1, x] * factor)
+            if x + spread < bw:
+                buf[bh-1, x+spread] = np.maximum(buf[bh-1, x+spread], buf[bh-1, x] * factor)
+    # Heavy horizontal blur — 5 passes to eliminate ALL black stripes
+    for _ in range(5):
+        new_buf = buf.copy()
         for y_buf in range(bh):
-            for x in range(1, min(w, bw) - 1):
-                buf[y_buf, x] = buf[y_buf, x] * 0.4 + buf[y_buf, x-1] * 0.3 + buf[y_buf, x+1] * 0.3
+            for x in range(2, min(w, bw) - 2):
+                new_buf[y_buf, x] = (buf[y_buf, x-2] * 0.1 + buf[y_buf, x-1] * 0.2 +
+                                     buf[y_buf, x] * 0.4 +
+                                     buf[y_buf, x+1] * 0.2 + buf[y_buf, x+2] * 0.1)
+        buf[:] = new_buf
     # Cool as fire rises: shift colors from yellow→orange→red→dark
     for y_buf in range(bh):
         age = 1.0 - y_buf / bh  # 1 at top (old), 0 at bottom (new)
@@ -1164,7 +1173,7 @@ def exp_hex_grid(frame, w, h, t, col_fft):
     mirror_fft = get_col_fft_mirror(w, offset=290)
     # Ultra-slow smoothing — 4x calmer animation
     for x in range(len(mirror_fft)):
-        mirror_fft[x] = smooth(290 + x, mirror_fft[x], attack=0.1, decay=0.99)  # 4x slower
+        mirror_fft[x] = smooth(290 + x, mirror_fft[x], attack=0.05, decay=0.995)  # 8x slower total
     for y in range(h):
         ny = y / (h-1)
         for x in range(w):
@@ -1330,7 +1339,8 @@ def exp_matrix(frame, w, h, t, col_fft):
         hue = (x / max(w-1, 1) * 0.15 + 0.3 + t * 0.01) % 1.0  # green-ish
         r, g, b = hsv(hue, 0.7, 1.0)
         # Column scroll speed varies with FFT
-        scroll = (t * (0.025 + fv * 0.04) + x * 0.37) % 1.0  # 4x slower
+        fv = max(fv, 0.1)  # always some activity — no blackouts
+        scroll = (t * (0.006 + fv * 0.01) + x * 0.37) % 1.0  # 16x slower total
         # Bright head + fading tail
         head_y = int(scroll * (h + 6)) - 3
         for y in range(h):
@@ -1507,13 +1517,13 @@ def apply_fx(frame, trail_buf):
 
 
 def render_loop():
-    global running, ws_clients, audio_active, audio_last_time, current_fx, current_palette
+    global running, ws_clients, audio_active, audio_last_time, current_fx, current_palette, global_bpm
     dt = 1.0 / FPS
     t = 0
 
     while running:
         t0 = time.monotonic()
-        t += dt
+        t += dt * (global_bpm / 120.0)  # speed multiplier from BPM slider
 
         # Auto-deactivate audio if no FFT data for 2 seconds
         if audio_active and time.monotonic() - audio_last_time > 2.0:
@@ -1577,6 +1587,7 @@ def render_loop():
             "palette_name": PALETTES[current_palette % len(PALETTES)][0],
             "palette_idx": current_palette % len(PALETTES),
             "palette_count": len(PALETTES),
+            "bpm": global_bpm,
         })
 
         with ws_lock:
@@ -1606,7 +1617,7 @@ async def index():
 
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
-    global current_exp, current_palette
+    global current_exp, current_palette, global_bpm
     await ws.accept()
     loop = asyncio.get_event_loop()
     ws._loop = loop
@@ -1645,6 +1656,8 @@ async def ws_endpoint(ws: WebSocket):
                 current_palette = (current_palette + 1) % len(PALETTES)
             elif cmd == "prev_palette":
                 current_palette = (current_palette - 1) % len(PALETTES)
+            elif cmd == "set_bpm":
+                global_bpm = max(0, min(200, int(data.get("value", 120))))
             elif cmd == "set_fx":
                 global current_fx
                 current_fx = data.get("fx", "none")

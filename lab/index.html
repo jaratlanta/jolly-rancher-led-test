@@ -91,6 +91,11 @@
         <button class="fx-btn" id="fx-plasma">Plasma</button>
     </div>
     <div style="display:flex; align-items:center; gap:6px;">
+        <span style="font-size:0.6rem; color:#444; text-transform:uppercase;">BPM</span>
+        <input type="range" id="bpm-slider" min="0" max="200" value="120" style="width:60px; height:3px;">
+        <span id="bpm-val" style="font-size:0.6rem; color:#666; min-width:25px;">120</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:6px;">
         <span style="font-size:0.6rem; color:#444; text-transform:uppercase;">Diffuser</span>
         <input type="range" id="diffuser" min="0" max="100" value="0" style="width:60px; height:3px;">
     </div>
@@ -280,6 +285,13 @@ document.getElementById('exp-name').addEventListener('click', () => {
         document.querySelectorAll('.fx-btn').forEach(b => b.classList.remove('active'));
         document.getElementById('fx-' + fx).classList.add('active');
     });
+});
+
+// BPM speed slider
+document.getElementById('bpm-slider').addEventListener('input', (e) => {
+    const val = parseInt(e.target.value);
+    document.getElementById('bpm-val').textContent = val;
+    send({ cmd: 'set_bpm', value: val });
 });
 
 // Diffuser
