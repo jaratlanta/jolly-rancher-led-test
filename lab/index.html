@@ -74,6 +74,14 @@
         <div class="exp-sub" id="exp-sub">0/0</div>
     </div>
     <button id="next-btn">►</button>
+    <div style="border-left: 1px solid #333; padding-left: 12px; display:flex; align-items:center; gap:6px;">
+        <button id="pal-prev" style="padding:5px 8px; font-size:0.7rem;">◄</button>
+        <div style="text-align:center; min-width:80px;">
+            <div class="exp-name" id="pal-name" style="font-size:0.75rem;">Rainbow</div>
+            <div class="exp-sub" style="font-size:0.55rem;">Palette</div>
+        </div>
+        <button id="pal-next" style="padding:5px 8px; font-size:0.7rem;">►</button>
+    </div>
     <button class="audio-btn" id="audio-btn">🎤 Audio Off</button>
     <div style="display:flex; gap:4px;">
         <button class="fx-btn active" id="fx-none">None</button>
@@ -198,6 +206,7 @@ function connect() {
             state = JSON.parse(e.data);
             document.getElementById('exp-name').textContent = state.exp_name || '—';
             document.getElementById('exp-sub').textContent = `${(state.exp_idx || 0) + 1}/${state.exp_count || 0}`;
+            if (state.palette_name) document.getElementById('pal-name').textContent = state.palette_name;
         }
     };
 }
@@ -284,6 +293,8 @@ document.getElementById('diffuser').addEventListener('input', (e) => {
 
 document.getElementById('prev-btn').addEventListener('click', () => send({ cmd: 'prev_exp' }));
 document.getElementById('next-btn').addEventListener('click', () => send({ cmd: 'next_exp' }));
+document.getElementById('pal-prev').addEventListener('click', () => send({ cmd: 'prev_palette' }));
+document.getElementById('pal-next').addEventListener('click', () => send({ cmd: 'next_palette' }));
 document.getElementById('audio-btn').addEventListener('click', () => {
     if (audioActive) stopAudio(); else startAudio();
 });
