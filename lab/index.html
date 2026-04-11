@@ -88,9 +88,8 @@
         <button class="fx-btn" id="fx-glow">Glow</button>
         <button class="fx-btn" id="fx-trail">Trail</button>
         <button class="fx-btn" id="fx-ghost">Ghost</button>
-        <button class="fx-btn" id="fx-plasma">Plasma</button>
     </div>
-    <div style="display:flex; align-items:center; gap:6px;">
+    <div id="bpm-group" style="display:flex; align-items:center; gap:6px;">
         <span style="font-size:0.6rem; color:#444; text-transform:uppercase;">BPM</span>
         <input type="range" id="bpm-slider" min="0" max="200" value="120" style="width:60px; height:3px;">
         <span id="bpm-val" style="font-size:0.6rem; color:#666; min-width:25px;">120</span>
@@ -232,6 +231,7 @@ async function startAudio() {
         audioActive = true;
         document.getElementById('audio-btn').classList.add('active');
         document.getElementById('audio-btn').textContent = 'Audio On';
+        document.getElementById('bpm-group').style.display = 'none';
         sendFFT();
     } catch (err) {
         alert('Mic access denied');
@@ -244,6 +244,7 @@ function stopAudio() {
     if (audioCtx) { audioCtx.close(); audioCtx = null; }
     document.getElementById('audio-btn').classList.remove('active');
     document.getElementById('audio-btn').textContent = 'Audio Off';
+    document.getElementById('bpm-group').style.display = 'flex';
 }
 
 function sendFFT() {
@@ -279,7 +280,7 @@ document.getElementById('exp-name').addEventListener('click', () => {
     }, 800);
 });
 // FX buttons
-['none', 'glow', 'trail', 'ghost', 'plasma'].forEach(fx => {
+['none', 'glow', 'trail', 'ghost'].forEach(fx => {
     document.getElementById('fx-' + fx).addEventListener('click', () => {
         send({ cmd: 'set_fx', fx });
         document.querySelectorAll('.fx-btn').forEach(b => b.classList.remove('active'));

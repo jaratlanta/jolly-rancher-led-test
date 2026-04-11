@@ -710,5 +710,18 @@
       "brightness": 254,
       "manual_bpm": 120
     }
+  },
+  {
+    "id": "61145ed2",
+    "name": "Stripes / Cyber Forest / Glow / 50% / 120bpm",
+    "created": 1775392235.980524,
+    "preset": {
+      "pattern_idx": 11,
+      "palette_idx": 25,
+      "fx": "glow",
+      "fx_intensity": 0.5,
+      "brightness": 128,
+      "manual_bpm": 120
+    }
   }
 ]
