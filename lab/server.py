@@ -1918,145 +1918,51 @@ def exp_ticker(frame, w, h, t, col_fft):
 
 
 # ─── Oregon Trail pixel art ──────────────────────────────────────────────────
+# Hand-traced from reference image. 28 rows x 50 cols.
+# Ox facing left, yoke, covered wagon with 3-bump cover, 2 spoked wheels.
+_OT_ROWS = [
+    #0         1         2         3         4
+    #0123456789012345678901234567890123456789012345678
+    "..........................####.......####........",  # 0  cover bump tops
+    ".........................######.....######.......",  # 1
+    "........................########...########......",  # 2
+    ".......................######################....",  # 3  cover merged
+    "......................#######################....",  # 4
+    ".....................###.####.###.####.###.###...",  # 5  cover with frame ribs
+    "....................##...####..#..####...#..##...",  # 6
+    "...................##....####.....####......##...",  # 7  cover sides visible
+    "..................##.....####.....####.......##..",  # 8
+    "..................#......####.....####........#..",  # 9
+    "..................##########################.#..",  # 10 body top rail
+    "...##.............#....................#.....#..",  # 11 ox horns + body
+    "..####............#....................#.....#..",  # 12
+    ".##..##...........#....................#.....#..",  # 13 ox head
+    ".######...........#....................#.....#..",  # 14
+    ".######...####....##########################...",  # 15 ox body + body bottom
+    ".######...#..#....#......####.......####....#..",  # 16 yoke + wheels top
+    ".######...####...#.....##....##...##....##..#..",  # 17
+    ".######..........#.....#.#..#.#...#.#..#.#..#..",  # 18 wheel spokes
+    "..##..##.........#.....#..##..#...#..##..#..#..",  # 19 ox legs + spokes
+    "..##..##..............##.#..#.##.##.#..#.##....",  # 20
+    "..##..##..............#..####..#.#..####..#....",  # 21 wheel detail
+    "..##..##..............##.#..#.##.##.#..#.##....",  # 22
+    "..##..##...............#..##..#...#..##..#.....",  # 23
+    "..##..##...............#.#..#.#...#.#..#.#.....",  # 24
+    "........................##....##...##....##.....",  # 25
+    ".........................######.....######......",  # 26 wheel bottoms
+    ".........................####.......####........",  # 27
+]
 
 def _build_ot_sprite():
-    """Build Oregon Trail sprite programmatically to match reference image exactly.
-    Reference: ox facing left → yoke → covered wagon with 3-bump cover + 2 spoked wheels."""
-    sh, sw = 32, 64  # taller resolution for detail
-    s = np.zeros((sh, sw), dtype=bool)
-
-    # ─── OX (facing left, cols 0-17) ───
-    # Horns
-    s[9, 5] = s[9, 6] = True        # left horn
-    s[8, 5] = True                    # horn tip
-    s[9, 10] = s[9, 11] = True      # right horn
-    s[8, 11] = True                   # horn tip
-    s[10, 5:12] = True               # horn base / top of head
-
-    # Head (wider block, slight snout on left)
-    for y in range(11, 15):
-        s[y, 3:13] = True
-    s[13, 1:3] = True                # snout juts left
-    s[14, 1:3] = True
-
-    # Body (large solid block)
-    for y in range(15, 22):
-        s[y, 4:16] = True
-
-    # Tail (small upward flick on right)
-    s[14, 15] = s[13, 16] = s[12, 16] = True
-
-    # Front legs (two, with gap)
-    for y in range(22, 28):
-        s[y, 4:6] = True             # front-left leg
-        s[y, 8:10] = True            # front-right leg
-    # Hooves (slightly wider)
-    s[28, 3:6] = True
-    s[28, 7:10] = True
-
-    # Back legs (two, with gap)
-    for y in range(22, 28):
-        s[y, 12:14] = True           # back-left leg
-        s[y, 15:17] = True           # back-right leg (tucked under body edge)
-    s[28, 11:14] = True
-    s[28, 14:17] = True
-
-    # ─── YOKE / CONNECTOR (cols 17-27) ───
-    # Two horizontal bars
-    for x in range(16, 28):
-        s[17, x] = True
-        s[19, x] = True
-    # Vertical bit near ox
-    s[16, 16] = s[18, 16] = s[20, 16] = True
-    # Vertical bit near wagon
-    s[16, 27] = s[18, 27] = s[20, 27] = True
-
-    # ─── WAGON COVER (3 arched bumps, cols 28-60) ───
-    # Three parabolic arches, filled down to the body top
-    cover_w = 32  # cols 28-59
-    cover_start = 28
-    for i in range(cover_w):
-        x = cover_start + i
-        if x >= sw:
-            break
-        # Position within cover (0..1)
-        p = i / (cover_w - 1)
-        # Three bumps using min of distances to 3 centers
-        bump_h = 0
-        for bc in [0.17, 0.5, 0.83]:
-            dist = abs(p - bc)
-            if dist < 0.19:
-                arch = 1.0 - (dist / 0.19) ** 1.5
-                bump_h = max(bump_h, arch)
-        if bump_h > 0.05:
-            top_row = int(2 + (1.0 - bump_h) * 9)
-            for y in range(top_row, 12):
-                s[y, x] = True
-
-    # Cover side supports (angled poles)
-    # Left pole: from cover edge down to body
-    for dy in range(6):
-        px = 28 + dy // 2
-        py = 11 + dy
-        if py < sh and px < sw:
-            s[py, px] = True
-            if px + 1 < sw:
-                s[py, px + 1] = True
-    # Right pole
-    for dy in range(6):
-        px = 59 - dy // 2
-        py = 11 + dy
-        if 0 <= px < sw and py < sh:
-            s[py, px] = True
-            if px - 1 >= 0:
-                s[py, px - 1] = True
-
-    # ─── WAGON BODY (solid rectangle, cols 28-60) ───
-    for y in range(14, 22):
-        for x in range(28, min(61, sw)):
-            s[y, x] = True
-
-    # Body top rail (thicker)
-    for x in range(28, min(61, sw)):
-        s[13, x] = True
-
-    # Body bottom rail
-    for x in range(28, min(61, sw)):
-        s[22, x] = True
-
-    # ─── WHEELS (two circles with cross-spokes) ───
-    for wcx in [36, 53]:
-        wcy = 26
-        r_outer = 4.2
-        r_inner = 3.2
-        for dy in range(-5, 6):
-            for dx in range(-5, 6):
-                d = math.sqrt(dx * dx + dy * dy)
-                y, x = wcy + dy, wcx + dx
-                if y < 0 or y >= sh or x < 0 or x >= sw:
-                    continue
-                # Outer rim
-                if r_inner < d <= r_outer:
-                    s[y, x] = True
-                # Hub (center dot)
-                if d < 1.2:
-                    s[y, x] = True
-                # 8 spokes (+ and X pattern)
-                if d < r_inner:
-                    # + spokes
-                    if dx == 0 or dy == 0:
-                        s[y, x] = True
-                    # X spokes
-                    if abs(abs(dx) - abs(dy)) <= 0.6:
-                        s[y, x] = True
-
-    # Connect wheels to body
-    for x in range(33, 40):
-        s[22, x] = s[23, x] = True
-    for x in range(50, 57):
-        s[22, x] = s[23, x] = True
-
-    return s, sw, sh
+    """Convert hand-traced string sprite to numpy bool array."""
+    rows = len(_OT_ROWS)
+    cols = max(len(r) for r in _OT_ROWS)
+    bmp = np.zeros((rows, cols), dtype=bool)
+    for y, row in enumerate(_OT_ROWS):
+        for x, ch in enumerate(row):
+            if ch == '#':
+                bmp[y, x] = True
+    return bmp, cols, rows
 
 _OT_BITMAP, _OT_W, _OT_H = _build_ot_sprite()
 
