@@ -1918,39 +1918,31 @@ def exp_ticker(frame, w, h, t, col_fft):
 
 
 # ─── Oregon Trail pixel art ──────────────────────────────────────────────────
-# Hand-traced from reference image. 28 rows x 50 cols.
-# Ox facing left, yoke, covered wagon with 3-bump cover, 2 spoked wheels.
+# Extracted from reference image via convert_sprite.py at 24px resolution.
 _OT_ROWS = [
-    #0         1         2         3         4
-    #0123456789012345678901234567890123456789012345678
-    "..........................####.......####........",  # 0  cover bump tops
-    ".........................######.....######.......",  # 1
-    "........................########...########......",  # 2
-    ".......................######################....",  # 3  cover merged
-    "......................#######################....",  # 4
-    ".....................###.####.###.####.###.###...",  # 5  cover with frame ribs
-    "....................##...####..#..####...#..##...",  # 6
-    "...................##....####.....####......##...",  # 7  cover sides visible
-    "..................##.....####.....####.......##..",  # 8
-    "..................#......####.....####........#..",  # 9
-    "..................##########################.#..",  # 10 body top rail
-    "...##.............#....................#.....#..",  # 11 ox horns + body
-    "..####............#....................#.....#..",  # 12
-    ".##..##...........#....................#.....#..",  # 13 ox head
-    ".######...........#....................#.....#..",  # 14
-    ".######...####....##########################...",  # 15 ox body + body bottom
-    ".######...#..#....#......####.......####....#..",  # 16 yoke + wheels top
-    ".######...####...#.....##....##...##....##..#..",  # 17
-    ".######..........#.....#.#..#.#...#.#..#.#..#..",  # 18 wheel spokes
-    "..##..##.........#.....#..##..#...#..##..#..#..",  # 19 ox legs + spokes
-    "..##..##..............##.#..#.##.##.#..#.##....",  # 20
-    "..##..##..............#..####..#.#..####..#....",  # 21 wheel detail
-    "..##..##..............##.#..#.##.##.#..#.##....",  # 22
-    "..##..##...............#..##..#...#..##..#.....",  # 23
-    "..##..##...............#.#..#.#...#.#..#.#.....",  # 24
-    "........................##....##...##....##.....",  # 25
-    ".........................######.....######......",  # 26 wheel bottoms
-    ".........................####.......####........",  # 27
+    "..........................#########....................#####.",
+    "........................##############............###########",
+    "........................#################.#####.#############",
+    ".........................##.###################.#############",
+    ".........................##.###################.#############",
+    ".........................##..##################.#############",
+    "..........................##..#################.############.",
+    "..........................##...################.############.",
+    "..........................##...################.############.",
+    "..........................###..################.###########..",
+    ".....##....................##..################.##########...",
+    "###...##...................##..################.##########...",
+    "..#####..#.#................#..################.##########...",
+    "..#####.#############...........###############.##########...",
+    ".######.##############.....#.#.#....###...#.#..#.#..###..#...",
+    "#######.###############.#.####.#..##..###.#.####...######....",
+    "...###.###############.......#.#.##...#####.####.###..####...",
+    ".....################......###..#######..##.###..#######.##..",
+    ".....################........#..#..#####.##.###..#.#####.##..",
+    ".......########..#####.......#..##..#######.#....#..#######..",
+    "......#####......######..........####..###.......####..###...",
+    ".....######.....###.###...........###..##.........###..##....",
+    ".....##...#....###..###............#####............####.....",
 ]
 
 def _build_ot_sprite():
@@ -1968,21 +1960,21 @@ _OT_BITMAP, _OT_W, _OT_H = _build_ot_sprite()
 
 
 def exp_oregon_trail(frame, w, h, t, col_fft):
-    """Oregon Trail — classic pixel art wagon scrolling right to left."""
+    """Oregon Trail — pixel art wagon scrolling R→L, palette-colored with wave."""
     mirror_fft = get_col_fft_mirror(w, offset=400)
+    overall = sum(col_fft) / max(len(col_fft), 1)
+
     # Scale sprite to fill panel height
     scale = max(1, h // _OT_H)
     sprite_w = _OT_W * scale
     sprite_h = _OT_H * scale
     y_offset = (h - sprite_h) // 2
 
-    # Scroll right to left
-    scroll_speed = 2.5
+    # Fast scroll right to left
+    scroll_speed = 6.0
     total_travel = sprite_w + w
     scroll_px = int(t * scroll_speed * scale) % total_travel
     sprite_x = w - scroll_px
-
-    overall = sum(col_fft) / max(len(col_fft), 1)
 
     for y in range(h):
         for x in range(w):
@@ -1995,43 +1987,48 @@ def exp_oregon_trail(frame, w, h, t, col_fft):
             if bmp_x < 0 or bmp_x >= _OT_W or bmp_y < 0 or bmp_y >= _OT_H:
                 continue
             if _OT_BITMAP[bmp_y, bmp_x]:
-                # Classic green phosphor
-                scanline = 0.88 + 0.12 * ((y % 2) == 0)
-                pulse = 0.85 + overall * 0.25
-                brightness = min(1.0, scanline * pulse)
-                g_val = int(min(255, 230 * brightness))
-                r_val = int(min(255, 25 * brightness))
-                b_val = int(min(255, 8 * brightness))
-                frame[y, x] = [r_val, g_val, b_val]
+                # Color wave sweeps across the sprite using active palette
+                # Hue based on position within sprite + time sweep
+                norm_x = bmp_x / max(_OT_W - 1, 1)
+                norm_y = bmp_y / max(_OT_H - 1, 1)
+                hue = (norm_x * 0.5 + math.sin(norm_x * 3 - t * 0.4) * 0.15 + t * 0.03) % 1.0
+                brightness = 0.8 + 0.2 * (1.0 - norm_y * 0.4) + overall * 0.15
+                r, g, b = hsv(hue, 0.85, min(1.0, brightness))
+                frame[y, x] = [r, g, b]
 
-    # Ground line
-    ground_y = min(h - 1, y_offset + sprite_h - 1)
-    for x in range(w):
-        if (x + int(t * 2)) % 5 < 3:
-            frame[ground_y, x] = [8, 80, 4]
+    # Scrolling ground line
+    ground_y = min(h - 1, y_offset + sprite_h)
+    if ground_y < h:
+        for x in range(w):
+            if (x + int(t * 4)) % 5 < 3:
+                fv = max(mirror_fft[x], 0.1)
+                hue = (x / max(w-1,1) * 0.3 + t * 0.02) % 1.0
+                r, g, b = hsv(hue, 0.7, 0.25 + fv * 0.2)
+                frame[ground_y, x] = [r, g, b]
 
     # Dust particles behind the ox
     if not hasattr(exp_oregon_trail, '_dust'):
         exp_oregon_trail._dust = []
     dust = exp_oregon_trail._dust
     ox_rear_x = sprite_x - int(1 * scale)
-    ox_rear_y = y_offset + int(20 * scale)
-    if len(dust) < 25 and 0 <= ox_rear_x < w:
+    ox_rear_y = y_offset + int(18 * scale)
+    if len(dust) < 30 and 0 <= ox_rear_x < w:
         dust.append([float(ox_rear_x), float(min(h - 2, ox_rear_y)),
-                     -0.4 - overall * 1.0, -0.2 - overall * 0.4, 1.0])
+                     -0.6 - overall * 1.5, -0.3 - overall * 0.5, 1.0])
     new_dust = []
     for d in dust:
         dx, dy, vx, vy, life = d
         dx += vx
         dy += vy
         vy += 0.04
-        life -= 0.035
+        life -= 0.03
         if life > 0 and 0 <= int(dx) < w and 0 <= int(dy) < h:
             px, py = int(dx), int(dy)
-            g = int(min(255, 100 * life))
-            frame[py, px] = [max(frame[py, px, 0], int(15 * life)),
+            hue = (px / max(w-1,1) * 0.3 + t * 0.03) % 1.0
+            r, g, b = hsv(hue, 0.6, min(1.0, life * 0.7))
+            frame[py, px] = [max(frame[py, px, 0], r),
                              max(frame[py, px, 1], g),
-                             max(frame[py, px, 2], 0)]
+                             max(frame[py, px, 2], b)]
             new_dust.append([dx, dy, vx, vy, life])
     exp_oregon_trail._dust = new_dust
 
