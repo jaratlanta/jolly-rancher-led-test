@@ -1917,6 +1917,134 @@ def exp_ticker(frame, w, h, t, col_fft):
                     frame[y, x] = [r, g, b]
 
 
+# ─── Oregon Trail pixel art ──────────────────────────────────────────────────
+# 24 rows tall, ~105 cols wide. Encoded as strings: '#' = green pixel, '.' = off
+# Scene: dust trail + vertical grass/dirt + ox + covered wagon with wheels
+_OT_SPRITE_RAW = [
+    #  dust/particles          grass/bars      ox                    yoke   wagon cover                    wagon body + wheels
+    ".........................................................................................................",  # row 0
+    ".........................................................................................................",  # row 1
+    "...............................................................................##########...............",  # row 2 wagon cover top
+    "..............................................................................############..............",  # row 3
+    ".............................................................................##############.............",  # row 4
+    "............................................................................################............",  # row 5
+    "...........................................................................##################...........",  # row 6
+    "..........................................................................##..##############..##........",  # row 7 cover sides
+    ".........................................................................#....############....#........",  # row 8
+    "........................................................................#.....############.....#.......",  # row 9
+    ".......................................##...............................#......############......#......",  # row 10 ox horns
+    "......................................####.............................########..........########......",  # row 11 wagon body top
+    ".....................................##..##............................#..........................#.....",  # row 12
+    "..............................##....##....##...........############...#..........................#.....",  # row 13 ox head + yoke
+    ".............................####...########...........#..........#..#..........................#.....",  # row 14
+    "............................######..########...........#..........#..#..........................#.....",  # row 15 ox body
+    "............................######..########...........############..############################.....",  # row 16
+    "...........................########.########...........#..........#..#..........................#.....",  # row 17
+    "...........#...#..........########.########...........#..........#..#..........................#.....",  # row 18
+    ".#.#......##..###........#.##..##..##....##...........############..#....####..........####....#.....",  # row 19 legs + wheels
+    "####.....###..####......##.##..##..##....##........................#...##....##......##....##..#.....",  # row 20
+    "####....####..#####....###..............................................#....#........#....#..........",  # row 21 wheel spokes
+    "####...#####..######..####..............................................##..##........##..##..........",  # row 22
+    "####..######..#######.#####..............................................####..........####...........",  # row 23 ground
+]
+
+def _build_ot_sprite():
+    """Convert string sprite to numpy bool array."""
+    rows = len(_OT_SPRITE_RAW)
+    cols = max(len(r) for r in _OT_SPRITE_RAW)
+    bmp = np.zeros((rows, cols), dtype=bool)
+    for y, row in enumerate(_OT_SPRITE_RAW):
+        for x, ch in enumerate(row):
+            if ch == '#':
+                bmp[y, x] = True
+    return bmp, cols, rows
+
+_OT_BITMAP, _OT_W, _OT_H = _build_ot_sprite()
+
+
+def exp_oregon_trail(frame, w, h, t, col_fft):
+    """Oregon Trail — classic pixel art wagon scrolling right to left."""
+    mirror_fft = get_col_fft_mirror(w, offset=400)
+    # Scale sprite to fill panel height
+    scale = max(1, h // _OT_H)
+    sprite_w = _OT_W * scale
+    sprite_h = _OT_H * scale
+    y_offset = (h - sprite_h) // 2  # center vertically
+
+    # Scroll right to left — sprite starts off-screen right, exits off-screen left
+    scroll_speed = 3.0  # pixels of t per frame
+    total_travel = sprite_w + w
+    scroll_px = int(t * scroll_speed * scale) % total_travel
+    # Sprite x position: starts at w (off right), moves left
+    sprite_x = w - scroll_px
+
+    # Classic green phosphor color with slight hue variation
+    overall = sum(col_fft) / max(len(col_fft), 1)
+
+    for y in range(h):
+        for x in range(w):
+            # Map to sprite coordinates
+            sx = x - sprite_x
+            sy = y - y_offset
+            if sx < 0 or sx >= sprite_w or sy < 0 or sy >= sprite_h:
+                continue
+            # Map scaled pixel back to bitmap
+            bmp_x = sx // scale
+            bmp_y = sy // scale
+            if bmp_x < 0 or bmp_x >= _OT_W or bmp_y < 0 or bmp_y >= _OT_H:
+                continue
+            if _OT_BITMAP[bmp_y, bmp_x]:
+                # Classic green phosphor with slight scanline effect
+                scanline = 0.85 + 0.15 * ((y % 2) == 0)
+                # Slight brightness variation across the sprite
+                depth = 0.7 + 0.3 * (1.0 - bmp_y / _OT_H)
+                # FFT makes the green pulse slightly
+                pulse = 0.8 + overall * 0.3
+                brightness = min(1.0, scanline * depth * pulse)
+                # Classic phosphor green: RGB(0, 255, 0) with warm tint
+                g_val = int(min(255, 220 * brightness))
+                r_val = int(min(255, 30 * brightness))
+                b_val = int(min(255, 10 * brightness))
+                frame[y, x] = [r_val, g_val, b_val]
+
+    # Ground line at bottom
+    ground_y = min(h - 1, y_offset + sprite_h - 1)
+    for x in range(w):
+        # Dashed ground line
+        if (x + int(t * 2)) % 6 < 4:
+            fv = max(mirror_fft[x], 0.15)
+            brightness = 0.3 + fv * 0.3
+            frame[ground_y, x] = [int(20 * brightness), int(140 * brightness), int(8 * brightness)]
+
+    # Dust particles behind the wagon
+    if not hasattr(exp_oregon_trail, '_dust'):
+        exp_oregon_trail._dust = []
+    dust = exp_oregon_trail._dust
+    # Spawn dust at wagon's rear (left side of sprite)
+    wagon_rear_x = sprite_x + int(2 * scale)
+    wagon_rear_y = y_offset + int(18 * scale)
+    if len(dust) < 30 and 0 <= wagon_rear_x < w:
+        dust.append([float(wagon_rear_x), float(min(h-2, wagon_rear_y)),
+                     -0.5 - overall * 1.5, -0.3 - overall * 0.5, 1.0])
+    # Update and render dust
+    new_dust = []
+    for d in dust:
+        dx, dy, vx, vy, life = d
+        dx += vx
+        dy += vy
+        vy += 0.05  # gravity
+        life -= 0.04
+        if life > 0 and 0 <= int(dx) < w and 0 <= int(dy) < h:
+            px, py = int(dx), int(dy)
+            g = int(min(255, 120 * life))
+            r = int(min(255, 20 * life))
+            frame[py, px] = [max(frame[py, px, 0], r),
+                             max(frame[py, px, 1], g),
+                             max(frame[py, px, 2], 0)]
+            new_dust.append([dx, dy, vx, vy, life])
+    exp_oregon_trail._dust = new_dust
+
+
 EXPERIMENTS = [
     # Patterns (column-based, all symmetric or mirrored)
     ("P1 Freq Bars", exp_freq_bars),
@@ -1956,6 +2084,8 @@ EXPERIMENTS = [
     ("G1 Network Globe", exp_network_globe),
     ("G2 Light Web", exp_light_web),
     ("G3 Geometric Flow", exp_geometric_flow),
+    # Special
+    ("Oregon Trail", exp_oregon_trail),
 ]
 
 
